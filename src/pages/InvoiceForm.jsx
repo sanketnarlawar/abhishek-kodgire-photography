@@ -11,7 +11,6 @@ import { TrashIcon, PlusIcon, SettingsIcon, WhatsAppIcon, ArrowLeftIcon } from '
 import ItemCombobox from '../components/ItemCombobox'
 import { loadItemsLibrary, saveItemsToLibrary } from '../lib/itemService'
 import { useProfile } from '../contexts/ProfileContext'
-import { sendInvoicePdfViaWhatsApp } from '../lib/whatsappService'
 
 const today = () => new Date().toISOString().slice(0, 10)
 const currentTime = () =>
@@ -56,8 +55,7 @@ export default function InvoiceForm() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [whatsAppSending, setWhatsAppSending] = useState(false)
-  const [autoSendWhatsApp, setAutoSendWhatsApp] = useState(true)
+  const [autoSendWhatsApp, setAutoSendWhatsApp] = useState(false)
   const [clientModalOpen, setClientModalOpen] = useState(false)
   const [clients, setClients] = useState([])
   const [clientBalance, setClientBalance] = useState(0)
@@ -88,8 +86,8 @@ export default function InvoiceForm() {
     description: '',
     discount: '',
     round_off: false,
-    received_checked: true,
-    received: '',
+    received_checked: false,
+    received: 0,
   })
 
   const baselineRef = useRef(null)
@@ -181,7 +179,7 @@ export default function InvoiceForm() {
             invoice_time: currentTime(),
             client_id: data.client_id || '',
             billing_name: clientObj?.name || '',
-            phone: clientObj?.phone || '',
+            phone: data.phone || clientObj?.phone || '',
             billing_address: clientObj?.address || '',
             eway_bill_no: '',
             items: rows,
@@ -438,9 +436,7 @@ export default function InvoiceForm() {
   const finalTotal = form.round_off ? Math.round(rawTotal) : rawTotal
 
   const receivedAmount = form.received_checked
-    ? form.received !== ''
-      ? Number(form.received) || 0
-      : finalTotal
+    ? Number(form.received) || 0
     : 0
 
   const balanceDue = Math.max(0, finalTotal - receivedAmount)
@@ -448,6 +444,11 @@ export default function InvoiceForm() {
   // ── Save Invoice ─────────────────────────────────────────────────────────
   const handleSave = async (e) => {
     if (e) e.preventDefault()
+
+    if (autoSendWhatsApp && !form.phone?.trim()) {
+      notify('Please enter the customer phone number or uncheck Send PDF on WhatsApp.', 'error')
+      return
+    }
 
     // Use billing_name if set, otherwise fall back to phone (user typed only a phone number)
     const customerName = (form.billing_name || '').trim()
@@ -488,11 +489,12 @@ export default function InvoiceForm() {
 
       // Auto-create client in database if not selected from existing list
       if (!finalClientId && effectiveName) {
-        // Match by name OR by phone digits (covers case where only phone was typed)
+        // A typed name matches by name only; phone matching applies when only a number was typed.
         const existing = clients.find(
           (c) =>
             c.name?.trim().toLowerCase() === effectiveName.toLowerCase() ||
-            (phoneAsName &&
+            (!customerName &&
+              phoneAsName &&
               (c.phone || '').replace(/\D/g, '') === phoneAsName.replace(/\D/g, ''))
         )
         if (existing) {
@@ -525,6 +527,7 @@ export default function InvoiceForm() {
       const payload = {
         invoice_number: form.invoice_number,
         client_id: finalClientId,
+        phone: form.phone?.trim() || null,
         event_type: 'Sale',
         event_date: null,
         issue_date: form.invoice_date,
@@ -538,14 +541,53 @@ export default function InvoiceForm() {
 
       let savedId = id
       if (isEdit) {
-        await supabase.from('invoices').update(payload).eq('id', id)
+        const { data: payments, error: paymentsError } = await supabase
+          .from('payments')
+          .select('id, amount')
+          .eq('invoice_id', id)
+          .order('created_at', { ascending: false })
+        if (paymentsError) throw paymentsError
+
+        const savedReceived = (payments || []).reduce(
+          (sum, payment) => sum + Math.round(Number(payment.amount) * 100),
+          0
+        )
+        const difference = Math.round(receivedAmount * 100) - savedReceived
+
+        if (difference > 0) {
+          const { error: paymentError } = await supabase.from('payments').insert({
+            invoice_id: id,
+            amount: difference / 100,
+            payment_date: form.invoice_date,
+            mode: form.payment_type,
+            note: form.description || 'Payment received while editing invoice',
+            is_advance: false,
+          })
+          if (paymentError) throw paymentError
+        } else if (difference < 0) {
+          let remainingReduction = -difference
+          for (const payment of payments || []) {
+            if (remainingReduction <= 0) break
+            const paymentAmount = Math.round(Number(payment.amount) * 100)
+            const reduction = Math.min(paymentAmount, remainingReduction)
+            const updatedAmount = paymentAmount - reduction
+            const { error: paymentError } = updatedAmount > 0
+              ? await supabase.from('payments').update({ amount: updatedAmount / 100 }).eq('id', payment.id)
+              : await supabase.from('payments').delete().eq('id', payment.id)
+            if (paymentError) throw paymentError
+            remainingReduction -= reduction
+          }
+        }
+
+        const { error } = await supabase.from('invoices').update(payload).eq('id', id)
+        if (error) throw error
       } else {
         const { data, error } = await supabase.from('invoices').insert(payload).select('id').single()
         if (error) throw error
         savedId = data?.id
 
         if (savedId && receivedAmount > 0) {
-          await supabase.from('payments').insert({
+          const { error: paymentError } = await supabase.from('payments').insert({
             invoice_id: savedId,
             amount: receivedAmount,
             payment_date: form.invoice_date,
@@ -553,6 +595,7 @@ export default function InvoiceForm() {
             note: form.description || 'Payment received at creation',
             is_advance: true,
           })
+          if (paymentError) throw paymentError
         }
 
         if (fromQuotation) {
@@ -572,64 +615,13 @@ export default function InvoiceForm() {
         console.warn('Item library sync:', e)
       }
 
-      // ── Automatic WhatsApp PDF Sending ─────────────────────────────────────
-      let waError = null
-      const customerPhone = form.phone?.trim()
-      if (autoSendWhatsApp && customerPhone) {
-        setWhatsAppSending(true)
-        try {
-          const paymentsForPdf =
-            receivedAmount > 0
-              ? [
-                  {
-                    amount: receivedAmount,
-                    payment_date: form.invoice_date,
-                    mode: form.payment_type,
-                    note: form.description || 'Payment received at creation',
-                    is_advance: true,
-                  },
-                ]
-              : []
+      notify(isEdit ? 'Invoice updated successfully!' : 'Sale invoice created successfully!')
 
-          const waResult = await sendInvoicePdfViaWhatsApp({
-            invoice: {
-              ...payload,
-              id: savedId,
-            },
-            client: {
-              id: finalClientId,
-              name: effectiveName,
-              phone: customerPhone,
-              address: form.billing_address?.trim(),
-            },
-            profile: profile || {},
-            payments: paymentsForPdf,
-          })
-
-          if (!waResult.success) {
-            waError = waResult.error
-          }
-        } catch (err) {
-          waError = err.message || 'Error triggering WhatsApp delivery'
-        } finally {
-          setWhatsAppSending(false)
-        }
-      }
-
-      if (waError) {
-        notify(`Invoice saved! WhatsApp delivery failed: ${waError}`, 'error')
-      } else if (autoSendWhatsApp && customerPhone) {
-        notify(`Invoice saved & PDF sent to customer on WhatsApp (${customerPhone})!`)
-      } else {
-        notify(isEdit ? 'Invoice updated successfully!' : 'Sale invoice created successfully!')
-      }
-
-      navigate(`/invoices/${savedId}`)
+      navigate(`/invoices/${savedId}`, { state: { sendWhatsApp: autoSendWhatsApp } })
     } catch (err) {
       notify(err.message || 'Error saving invoice', 'error')
     } finally {
       setSaving(false)
-      setWhatsAppSending(false)
     }
   }
 
@@ -1130,7 +1122,7 @@ export default function InvoiceForm() {
                     setForm({
                       ...form,
                       received_checked: checked,
-                      received: checked ? (form.received !== '' ? form.received : finalTotal) : '',
+                      received: 0,
                     })
                   }}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1142,8 +1134,8 @@ export default function InvoiceForm() {
                 min="0"
                 max={finalTotal}
                 disabled={!form.received_checked}
-                placeholder={String(finalTotal)}
-                value={form.received_checked ? (form.received !== '' ? form.received : (finalTotal > 0 ? finalTotal : '')) : ''}
+                placeholder="0"
+                value={form.received_checked ? (form.received ?? 0) : ''}
                 onChange={(e) => setForm({ ...form, received: e.target.value })}
                 className="h-8 w-28 rounded border border-gray-300 bg-white px-2 text-right font-medium text-gray-800 shadow-sm disabled:bg-gray-100 disabled:text-gray-400 focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:disabled:bg-gray-700/50"
               />
@@ -1169,7 +1161,7 @@ export default function InvoiceForm() {
               }`}
               title={
                 form.phone?.trim()
-                  ? `Invoice PDF will be sent automatically to ${form.phone}`
+                  ? `After saving, you can send the invoice PDF to ${form.phone} from your WhatsApp`
                   : 'Enter a customer phone number above to send WhatsApp PDF'
               }
             >
@@ -1203,14 +1195,10 @@ export default function InvoiceForm() {
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saving || whatsAppSending}
+                disabled={saving}
                 className="flex items-center gap-1.5 rounded-md bg-blue-600 px-6 py-2 text-xs font-bold uppercase tracking-wider text-white shadow-md transition hover:bg-blue-700 active:scale-95 disabled:opacity-50"
               >
-                {saving
-                  ? 'Saving…'
-                  : whatsAppSending
-                  ? 'Sending WhatsApp PDF…'
-                  : 'Save Invoice'}
+                {saving ? 'Saving…' : 'Save Invoice'}
               </button>
             </div>
           </div>

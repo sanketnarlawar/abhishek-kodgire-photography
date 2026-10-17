@@ -1,4 +1,4 @@
-# Studio Manager — Photography Studio Management
+# Abhishek Kodgire Photography & Films
 
 A free web application for photographers to create invoices and quotations, manage clients,
 track payments and expenses, and get paid via UPI — built with React, Vite, Tailwind CSS,

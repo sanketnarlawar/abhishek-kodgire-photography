@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { pdf } from '@react-pdf/renderer'
 import { supabase } from '../lib/supabase'
@@ -25,8 +25,10 @@ const today = () => new Date().toISOString().slice(0, 10)
 export default function InvoiceView() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { notify } = useToast()
   const confirm = useConfirm()
+  const [showWhatsAppPrompt, setShowWhatsAppPrompt] = useState(Boolean(location.state?.sendWhatsApp))
   const [invoice, setInvoice] = useState(null)
   const [client, setClient] = useState(null)
   const [profile, setProfile] = useState(null)
@@ -35,6 +37,7 @@ export default function InvoiceView() {
   const [payModalOpen, setPayModalOpen] = useState(false)
   const [payForm, setPayForm] = useState({ amount: 0, payment_date: today(), mode: 'UPI', note: '' })
   const [downloading, setDownloading] = useState(false)
+  const [pdfBlob, setPdfBlob] = useState(null)
 
   const load = async () => {
     const { data: inv } = await supabase
@@ -60,6 +63,11 @@ export default function InvoiceView() {
   useEffect(() => {
     load()
   }, [id])
+
+  // Clear the hand-off flag so a refresh doesn't show the prompt again.
+  useEffect(() => {
+    if (location.state?.sendWhatsApp) navigate(location.pathname, { replace: true, state: null })
+  }, [])
 
   const paid = useMemo(
     () => payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0),
@@ -144,8 +152,7 @@ export default function InvoiceView() {
     navigate('/invoices')
   }
 
-  const downloadPdf = async () => {
-    setDownloading(true)
+  const buildPdfBlob = async () => {
     let qrDataUrl = ''
     if (upiUri) {
       try {
@@ -154,31 +161,63 @@ export default function InvoiceView() {
         qrDataUrl = ''
       }
     }
-    const blob = await pdf(
+    return pdf(
       <InvoicePDF profile={profile} invoice={invoice} client={client} qrDataUrl={qrDataUrl} payments={payments} />
     ).toBlob()
+  }
+
+  const saveBlob = (blob) => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `${invoice.invoice_number}.pdf`
     a.click()
     URL.revokeObjectURL(url)
-    setDownloading(false)
-    notify('PDF downloaded')
   }
 
-  const shareWhatsApp = () => {
-    const lines = [
-      `*${profile?.studio_name || 'Invoice'}*`,
-      `Invoice: ${invoice.invoice_number}`,
-      `Amount: ${formatCurrency(invoice.total)}`,
-      balance > 0 ? `Balance due: ${formatCurrency(balance)}` : 'Status: Paid',
-      upiUri ? `Pay via UPI: ${upiUri}` : '',
-    ].filter(Boolean)
-    const text = encodeURIComponent(lines.join('\n'))
-    const phone = (client?.phone || '').replace(/\D/g, '')
-    const url = phone ? `https://wa.me/91${phone}?text=${text}` : `https://wa.me/?text=${text}`
-    window.open(url, '_blank')
+  // Built ahead of the click: browsers only allow the share sheet shortly after a click.
+  useEffect(() => {
+    if (!invoice || !profile) return
+    let cancelled = false
+    setPdfBlob(null)
+    buildPdfBlob()
+      .then((blob) => {
+        if (!cancelled) setPdfBlob(blob)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [invoice, client, profile, payments, upiUri])
+
+  const downloadPdf = async () => {
+    setDownloading(true)
+    try {
+      saveBlob(await buildPdfBlob())
+      notify('PDF downloaded')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  const shareWhatsApp = async () => {
+    setShowWhatsAppPrompt(false)
+    setDownloading(true)
+
+    try {
+      const blob = pdfBlob || (await buildPdfBlob())
+      const file = new File([blob], `${invoice.invoice_number}.pdf`, { type: 'application/pdf' })
+
+      if (!navigator.canShare?.({ files: [file] })) {
+        notify('This browser cannot share files. Try Chrome or Edge.', 'error')
+        return
+      }
+      await navigator.share({ files: [file] })
+    } catch (err) {
+      if (err.name !== 'AbortError') notify(err.message || 'Could not share the invoice PDF', 'error')
+    } finally {
+      setDownloading(false)
+    }
   }
 
   if (loading) return <PageLoader />
@@ -198,8 +237,8 @@ export default function InvoiceView() {
             <button onClick={downloadPdf} disabled={downloading} className="btn-secondary">
               {downloading ? 'Preparing…' : 'Download PDF'}
             </button>
-            <button onClick={shareWhatsApp} className="btn-secondary">
-              Share
+            <button onClick={shareWhatsApp} disabled={downloading || !pdfBlob} className="btn-secondary">
+              {pdfBlob ? 'Send on WhatsApp' : 'Preparing PDF…'}
             </button>
             <button onClick={deleteInvoice} className="btn-danger">
               Delete
@@ -208,6 +247,20 @@ export default function InvoiceView() {
         }
       />
 
+
+      {showWhatsAppPrompt && (
+        <div className="mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200">
+          <span>Invoice saved. Send it to {client?.name || 'the customer'} on WhatsApp?</span>
+          <div className="flex gap-2">
+            <button onClick={shareWhatsApp} disabled={downloading || !pdfBlob} className="btn-primary">
+              {pdfBlob ? 'Send on WhatsApp' : 'Preparing PDF…'}
+            </button>
+            <button onClick={() => setShowWhatsAppPrompt(false)} className="btn-secondary">
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-3xl">
         <div className="card">

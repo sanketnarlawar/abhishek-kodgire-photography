@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { formatCurrency } from '../lib/format'
 
 /**
@@ -19,6 +20,38 @@ export default function ItemCombobox({
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
   const wrapperRef = useRef(null)
   const inputRef = useRef(null)
+  const dropdownRef = useRef(null)
+  const [dropdownStyle, setDropdownStyle] = useState({})
+
+  useLayoutEffect(() => {
+    if (!isOpen) return
+
+    const updatePosition = () => {
+      const rect = inputRef.current.getBoundingClientRect()
+      const viewportWidth = document.documentElement.clientWidth
+      const viewportHeight = window.innerHeight
+      const spaceBelow = Math.max(0, viewportHeight - rect.bottom - 8)
+      const spaceAbove = Math.max(0, rect.top - 8)
+      const openAbove = spaceBelow < 240 && spaceAbove > spaceBelow
+      const width = Math.min(Math.max(rect.width, 320), viewportWidth - 16)
+
+      setDropdownStyle({
+        width,
+        left: Math.max(8, Math.min(rect.left, viewportWidth - width - 8)),
+        top: openAbove ? undefined : rect.bottom + 4,
+        bottom: openAbove ? viewportHeight - rect.top + 4 : undefined,
+        maxHeight: Math.min(240, openAbove ? spaceAbove : spaceBelow),
+      })
+    }
+
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [isOpen])
 
   // Filter items matching typed query
   const query = (value || '').trim().toLowerCase()
@@ -40,7 +73,7 @@ export default function ItemCombobox({
   // Close when clicking outside
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target) && !dropdownRef.current?.contains(e.target)) {
         setIsOpen(false)
         setHighlightedIndex(-1)
       }
@@ -123,8 +156,8 @@ export default function ItemCombobox({
         className="w-full rounded border border-gray-200 bg-white px-2.5 py-1 text-sm font-medium text-gray-800 placeholder-gray-400 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
       />
 
-      {isOpen && (
-        <div className="absolute left-0 top-full z-50 mt-1 max-h-60 w-80 min-w-full overflow-y-auto rounded-md border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
+      {isOpen && createPortal(
+        <div ref={dropdownRef} style={dropdownStyle} className="fixed z-50 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
           {/* Header */}
           <div className="border-b border-gray-100 bg-gray-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-gray-400">
             {query ? 'Matching Items' : itemsList.length > 0 ? 'Saved Studio Items' : 'Item Suggestions'}
@@ -203,7 +236,8 @@ export default function ItemCombobox({
                 : 'No matching items found'}
             </div>
           ) : null}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

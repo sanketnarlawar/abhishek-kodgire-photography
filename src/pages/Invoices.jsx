@@ -58,6 +58,8 @@ export default function Invoices() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
+  const [exportModalOpen, setExportModalOpen] = useState(false)
+  const [exportRange, setExportRange] = useState({ start: '', end: '' })
 
   // Payment Modal state
   const [payModalOpen, setPayModalOpen] = useState(false)
@@ -167,8 +169,23 @@ export default function Invoices() {
     }
   }
 
-  const exportCsv = () => {
-    const rows = filtered.map((i) => ({
+  const exportCsv = (e) => {
+    e.preventDefault()
+    const { start, end } = exportRange
+    if (!start || !end || start > end) {
+      notify('Please select a valid start and end date.', 'error')
+      return
+    }
+
+    const matchingInvoices = filtered.filter(
+      (invoice) => invoice.issue_date >= start && invoice.issue_date <= end
+    )
+    if (matchingInvoices.length === 0) {
+      notify('No invoices match this date range and the current filters.', 'error')
+      return
+    }
+
+    const rows = matchingInvoices.map((i) => ({
       Client: i.client?.name || '',
       Phone: i.client?.phone || '',
       Date: i.issue_date || '',
@@ -177,7 +194,8 @@ export default function Invoices() {
       Balance: i.balance || 0,
       Status: i.status || '',
     }))
-    downloadCsv('invoices.csv', rows)
+    downloadCsv(`invoices_${start}_to_${end}.csv`, rows)
+    setExportModalOpen(false)
   }
 
   return (
@@ -187,7 +205,14 @@ export default function Invoices() {
         subtitle="Create, track and manage client invoices"
         action={
           <div className="flex gap-2">
-            <button onClick={exportCsv} className="btn-secondary">
+            <button
+              onClick={() => {
+                setExportRange({ start: '', end: '' })
+                setExportModalOpen(true)
+              }}
+              disabled={loading}
+              className="btn-secondary"
+            >
               Export CSV
             </button>
             <Link to="/invoices/new" className="btn-primary">
@@ -324,6 +349,49 @@ export default function Invoices() {
           <Pagination page={table.page} totalPages={table.totalPages} total={table.total} onPage={table.setPage} />
         </>
       )}
+
+      <Modal open={exportModalOpen} onClose={() => setExportModalOpen(false)} title="Export Invoices" size="sm">
+        <form onSubmit={exportCsv} className="space-y-4 text-sm">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="min-w-0">
+              <label htmlFor="export-start-date" className="mb-1 block font-medium">
+                Invoice Date From
+              </label>
+              <input
+                id="export-start-date"
+                type="date"
+                required
+                max={exportRange.end || undefined}
+                value={exportRange.start}
+                onChange={(e) => setExportRange((range) => ({ ...range, start: e.target.value }))}
+                className="input w-full min-w-0"
+              />
+            </div>
+            <div className="min-w-0">
+              <label htmlFor="export-end-date" className="mb-1 block font-medium">
+                Invoice Date To
+              </label>
+              <input
+                id="export-end-date"
+                type="date"
+                required
+                min={exportRange.start || undefined}
+                value={exportRange.end}
+                onChange={(e) => setExportRange((range) => ({ ...range, end: e.target.value }))}
+                className="input w-full min-w-0"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setExportModalOpen(false)} className="btn-secondary">
+              Cancel
+            </button>
+            <button type="submit" className="btn-primary">
+              Export CSV
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* ── RECORD PAYMENT MODAL ────────────────────────────────────────── */}
       <Modal open={payModalOpen} onClose={() => setPayModalOpen(false)} title="Record Payment" size="sm">

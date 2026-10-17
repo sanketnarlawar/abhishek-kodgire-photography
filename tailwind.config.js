@@ -7,6 +7,8 @@ export default {
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         display: ['Poppins', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        brand: ['"Playfair Display"', 'Georgia', 'serif'],
+        modern: ['"Plus Jakarta Sans"', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       colors: {
         brand: {

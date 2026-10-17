@@ -135,7 +135,7 @@ export default function InvoicePDF({ profile = {}, invoice = {}, client = {}, qr
         {/* ── Header ─────────────────────────────────────────────── */}
         <View style={S.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={S.studioName}>{profile.studio_name || 'Abhishek Kodgire Photography & Film\'s'}</Text>
+            <Text style={S.studioName}>{profile.studio_name || 'Abhishek Kodgire Photography & Films'}</Text>
             {profile.address ? <Text style={S.studioMeta}>{profile.address}</Text> : null}
             {profile.phone ? <Text style={S.studioMeta}>Phone no. : {profile.phone}</Text> : null}
             {profile.email ? <Text style={S.studioMeta}>Email : {profile.email}</Text> : null}

@@ -84,7 +84,7 @@ export default function Layout({ children }) {
   }
 
   const studioName =
-    profile?.studio_name && profile.studio_name !== 'Studio Manager'
+    profile?.studio_name && profile.studio_name !== 'Abhishek Kodgire Photography & Films'
       ? profile.studio_name
       : 'Abhishek Kodgire photoStudio'
 

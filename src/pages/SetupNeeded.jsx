@@ -5,7 +5,7 @@ export default function SetupNeeded() {
     <div className="mx-auto max-w-2xl p-6">
       <div className="mb-6 flex items-center gap-2">
         <span className="text-brand-600"><CameraIcon width={32} height={32} /></span>
-        <h1 className="text-2xl font-bold">Studio Manager — Setup</h1>
+        <h1 className="text-2xl font-bold">Abhishek Kodgire Photography & Films</h1>
       </div>
       <div className="card space-y-4">
         <p className="text-gray-600 dark:text-gray-300">

@@ -52,6 +52,7 @@ create table if not exists public.invoices (
   owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   invoice_number text not null,
   client_id uuid references public.clients (id) on delete set null,
+  phone text,
   event_type text,
   event_date date,
   issue_date date default now(),
