@@ -7,7 +7,7 @@ import { PageLoader } from '../components/Loaders'
 import { useToast } from '../contexts/ToastContext'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { formatCurrency } from '../lib/format'
-import { TrashIcon, PlusIcon, SettingsIcon, WhatsAppIcon } from '../components/icons'
+import { TrashIcon, PlusIcon, SettingsIcon, WhatsAppIcon, ArrowLeftIcon } from '../components/icons'
 import ItemCombobox from '../components/ItemCombobox'
 import { loadItemsLibrary, saveItemsToLibrary } from '../lib/itemService'
 import { useProfile } from '../contexts/ProfileContext'
@@ -95,6 +95,14 @@ export default function InvoiceForm() {
   const baselineRef = useRef(null)
   const [dirty, setDirty] = useState(false)
   const releaseGuard = useUnsavedGuard(dirty)
+
+  const handleBack = () => {
+    if (window.history.state && window.history.state.idx > 0) {
+      navigate(-1)
+    } else {
+      navigate('/invoices')
+    }
+  }
 
   // ── Calculate Client Balance ──────────────────────────────────────────────
   const loadClientBalance = async (clientId) => {
@@ -630,12 +638,23 @@ export default function InvoiceForm() {
   return (
     <div className="mx-auto w-full max-w-7xl font-sans text-gray-800 dark:text-gray-100">
       {/* ── TOP HEADER / APP BAR ────────────────────────────────────────── */}
-      <div className="mb-4 flex flex-wrap items-center justify-between border-b border-gray-200 pb-3 dark:border-gray-700">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-gray-700">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Sale</h1>
-          <span className="rounded bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">
-            {isEdit ? 'Edit Invoice' : 'New Invoice'}
-          </span>
+          <button
+            type="button"
+            onClick={handleBack}
+            aria-label="Back to Invoices"
+            title="Back to Invoices"
+            className="group flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-gray-300 hover:bg-gray-100 hover:text-gray-900 active:scale-95 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-600 dark:hover:bg-gray-700 dark:hover:text-white"
+          >
+            <ArrowLeftIcon width={18} height={18} className="transition-transform group-hover:-translate-x-0.5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Sale</h1>
+            <span className="rounded bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">
+              {isEdit ? 'Edit Invoice' : 'New Invoice'}
+            </span>
+          </div>
         </div>
 
         {/* Invoice Number, Date, Time on Top Right */}

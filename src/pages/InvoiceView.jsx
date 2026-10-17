@@ -187,6 +187,7 @@ export default function InvoiceView() {
   return (
     <div>
       <PageHeader
+        backTo="/invoices"
         title={invoice.invoice_number}
         subtitle={<StatusBadge status={invoice.status} />}
         action={

@@ -193,6 +193,7 @@ export default function QuotationForm() {
   return (
     <div className="max-w-3xl">
       <PageHeader
+        backTo="/quotations"
         title={isEdit ? 'Edit Quotation' : 'New Quotation'}
         subtitle={form.quotation_number}
         action={
