@@ -5,10 +5,12 @@ import PageHeader from '../components/PageHeader'
 import LineItemsEditor from '../components/LineItemsEditor'
 import SelectWithOther from '../components/SelectWithOther'
 import ClientFormModal from '../components/ClientFormModal'
+import CustomerCombobox from '../components/CustomerCombobox'
 import { PageLoader } from '../components/Loaders'
 import { useToast } from '../contexts/ToastContext'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { EVENT_TYPES, QUOTATION_STATUSES, formatCurrency } from '../lib/format'
+import { saveItemsToLibrary } from '../lib/itemService'
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -29,6 +31,7 @@ export default function QuotationForm() {
   const { notify } = useToast()
 
   const [clients, setClients] = useState([])
+  const [customerName, setCustomerName] = useState('')
   const [packages, setPackages] = useState([])
   const [selectedPackage, setSelectedPackage] = useState('')
   const [loading, setLoading] = useState(true)
@@ -55,7 +58,7 @@ export default function QuotationForm() {
   useEffect(() => {
     const init = async () => {
       const [{ data: clientData }, { data: pkgData }, { data: profile }] = await Promise.all([
-        supabase.from('clients').select('id, name').order('name'),
+        supabase.from('clients').select('*').order('name'),
         supabase.from('packages').select('*').order('name'),
         supabase.from('business_profile').select('quotation_prefix').limit(1).maybeSingle(),
       ])
@@ -66,6 +69,8 @@ export default function QuotationForm() {
       if (isEdit) {
         const { data } = await supabase.from('quotations').select('*').eq('id', id).single()
         if (data) {
+          const clientObj = (clientData || []).find((c) => c.id === data.client_id)
+          setCustomerName(clientObj?.name || '')
           setForm({
             quotation_number: data.quotation_number,
             client_id: data.client_id || '',
@@ -114,8 +119,9 @@ export default function QuotationForm() {
 
   const save = async (e) => {
     e.preventDefault()
-    if (!form.client_id) {
-      notify('Please select a client.', 'error')
+    const trimmed = customerName.trim()
+    if (!form.client_id && !trimmed) {
+      notify('Please select or enter a client name.', 'error')
       return
     }
     if (form.items.filter((it) => it.description.trim() && Number(it.rate) > 0).length === 0) {
@@ -123,31 +129,63 @@ export default function QuotationForm() {
       return
     }
     setSaving(true)
-    const payload = {
-      quotation_number: form.quotation_number,
-      client_id: form.client_id,
-      event_type: form.event_type,
-      event_date: form.event_date || null,
-      issue_date: form.issue_date,
-      valid_until: form.valid_until || null,
-      items: form.items,
-      discount: Number(form.discount) || 0,
-      subtotal,
-      total,
-      notes: form.notes,
-      status: form.status,
+    try {
+      let finalClientId = form.client_id
+      if (!finalClientId && trimmed) {
+        const existing = clients.find(
+          (c) => c.name?.trim().toLowerCase() === trimmed.toLowerCase()
+        )
+        if (existing) {
+          finalClientId = existing.id
+        } else {
+          const { data: newClient, error: clientErr } = await supabase
+            .from('clients')
+            .insert({ name: trimmed })
+            .select()
+            .single()
+          if (clientErr) throw new Error(`Could not add customer: ${clientErr.message}`)
+          finalClientId = newClient.id
+          setClients((prev) => [...prev, newClient])
+        }
+      }
+
+      const payload = {
+        quotation_number: form.quotation_number,
+        client_id: finalClientId,
+        event_type: form.event_type,
+        event_date: form.event_date || null,
+        issue_date: form.issue_date,
+        valid_until: form.valid_until || null,
+        items: form.items,
+        discount: Number(form.discount) || 0,
+        subtotal,
+        total,
+        notes: form.notes,
+        status: form.status,
+      }
+      if (isEdit) {
+        await supabase.from('quotations').update(payload).eq('id', id)
+      } else {
+        await supabase.from('quotations').insert(payload)
+      }
+
+      // Save items to library
+      try {
+        await saveItemsToLibrary(form.items)
+      } catch (e) {
+        console.warn('Item library sync:', e)
+      }
+
+      setDirty(false)
+      baselineRef.current = JSON.stringify(form)
+      releaseGuard()
+      setSaving(false)
+      notify(isEdit ? 'Quotation updated' : 'Quotation created')
+      navigate('/quotations')
+    } catch (err) {
+      notify(err.message || 'Error saving quotation', 'error')
+      setSaving(false)
     }
-    if (isEdit) {
-      await supabase.from('quotations').update(payload).eq('id', id)
-    } else {
-      await supabase.from('quotations').insert(payload)
-    }
-    setDirty(false)
-    baselineRef.current = JSON.stringify(form)
-    releaseGuard()
-    setSaving(false)
-    notify(isEdit ? 'Quotation updated' : 'Quotation created')
-    navigate('/quotations')
   }
 
   if (loading) return <PageLoader />
@@ -174,25 +212,43 @@ export default function QuotationForm() {
         <div className="card space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="label">Client *</label>
-              <div className="flex gap-2">
-                <select
-                  required
-                  className="input"
-                  value={form.client_id}
-                  onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+              <div className="mb-1 flex items-center justify-between">
+                <label className="label mb-0">Client *</label>
+                <button
+                  type="button"
+                  onClick={() => setClientModalOpen(true)}
+                  className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
                 >
-                  <option value="">Select client…</option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                <button type="button" onClick={() => setClientModalOpen(true)} className="btn-secondary shrink-0">
-                  + New
+                  + Add Party (Details)
                 </button>
               </div>
+              <CustomerCombobox
+                clients={clients}
+                selectedClientId={form.client_id}
+                customerName={customerName}
+                onSelectClient={(client) => {
+                  setCustomerName(client.name || '')
+                  setForm((f) => ({ ...f, client_id: client.id }))
+                }}
+                onNameChange={(name) => {
+                  setCustomerName(name)
+                  const matched = clients.find(
+                    (c) => c.name?.trim().toLowerCase() === name.trim().toLowerCase()
+                  )
+                  setForm((f) => ({ ...f, client_id: matched ? matched.id : '' }))
+                }}
+                onClear={() => {
+                  setCustomerName('')
+                  setForm((f) => ({ ...f, client_id: '' }))
+                }}
+                onPhoneInput={(phone) => {
+                  // In quotations we don't have a dedicated phone field,
+                  // but we store it in state for auto-create
+                  setCustomerName('')   // clear name field (phone goes to state only)
+                  setForm((f) => ({ ...f, _phone: phone }))
+                }}
+                placeholder="Search party or type new name..."
+              />
             </div>
             <div>
               <label className="label">Event Type</label>
@@ -313,8 +369,9 @@ export default function QuotationForm() {
         onSaved={(client) => {
           if (!client) return
           setClients((list) =>
-            [...list, { id: client.id, name: client.name }].sort((a, b) => a.name.localeCompare(b.name))
+            [...list, client].sort((a, b) => a.name.localeCompare(b.name))
           )
+          setCustomerName(client.name || '')
           setForm((f) => ({ ...f, client_id: client.id }))
         }}
       />

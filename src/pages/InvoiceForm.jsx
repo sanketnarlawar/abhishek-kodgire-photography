@@ -2,11 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ClientFormModal from '../components/ClientFormModal'
+import CustomerCombobox from '../components/CustomerCombobox'
 import { PageLoader } from '../components/Loaders'
 import { useToast } from '../contexts/ToastContext'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { formatCurrency } from '../lib/format'
-import { TrashIcon, PlusIcon, SettingsIcon } from '../components/icons'
+import { TrashIcon, PlusIcon, SettingsIcon, WhatsAppIcon } from '../components/icons'
+import ItemCombobox from '../components/ItemCombobox'
+import { loadItemsLibrary, saveItemsToLibrary } from '../lib/itemService'
+import { useProfile } from '../contexts/ProfileContext'
+import { sendInvoicePdfViaWhatsApp } from '../lib/whatsappService'
 
 const today = () => new Date().toISOString().slice(0, 10)
 const currentTime = () =>
@@ -51,9 +56,13 @@ export default function InvoiceForm() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [whatsAppSending, setWhatsAppSending] = useState(false)
+  const [autoSendWhatsApp, setAutoSendWhatsApp] = useState(true)
   const [clientModalOpen, setClientModalOpen] = useState(false)
   const [clients, setClients] = useState([])
   const [clientBalance, setClientBalance] = useState(0)
+  const [itemsList, setItemsList] = useState([])
+  const { profile } = useProfile()
 
   // Attachments state
   const [attachedImageName, setAttachedImageName] = useState('')
@@ -219,6 +228,15 @@ export default function InvoiceForm() {
         const number = await generateNumber(prefix)
         setForm((f) => ({ ...f, invoice_number: number }))
       }
+
+      // Load saved items library from database and past invoices
+      try {
+        const savedItems = await loadItemsLibrary()
+        setItemsList(savedItems)
+      } catch (err) {
+        console.error('Error loading items library:', err)
+      }
+
       setLoading(false)
     }
     init()
@@ -232,17 +250,55 @@ export default function InvoiceForm() {
     if (baselineRef.current !== null) setDirty(JSON.stringify(form) !== baselineRef.current)
   }, [form])
 
-  // ── Handle Client Change ─────────────────────────────────────────────────
-  const handleClientSelect = (clientId) => {
-    const selected = clients.find((c) => c.id === clientId)
+  // ── Handle Client Change & Auto-Creation Support ───────────────────────────
+  const handleClientSelect = (clientOrId) => {
+    const selected =
+      typeof clientOrId === 'object' && clientOrId !== null
+        ? clientOrId
+        : clients.find((c) => c.id === clientOrId)
+
+    if (!selected) return
+
     setForm((prev) => ({
       ...prev,
-      client_id: clientId,
-      billing_name: selected?.name || '',
-      phone: selected?.phone || '',
-      billing_address: selected?.address || '',
+      client_id: selected.id,
+      billing_name: selected.name || '',
+      phone: selected.phone || prev.phone || '',
+      billing_address: selected.address || prev.billing_address || '',
     }))
-    loadClientBalance(clientId)
+    loadClientBalance(selected.id)
+  }
+
+  const handleCustomerNameChange = (name, forceNew = false) => {
+    const matched =
+      !forceNew && name.trim()
+        ? clients.find((c) => c.name?.trim().toLowerCase() === name.trim().toLowerCase())
+        : null
+
+    setForm((prev) => ({
+      ...prev,
+      billing_name: name,
+      client_id: matched ? matched.id : '',
+      phone: matched ? matched.phone || prev.phone : prev.phone,
+      billing_address: matched ? matched.address || prev.billing_address : prev.billing_address,
+    }))
+
+    if (matched) {
+      loadClientBalance(matched.id)
+    } else {
+      setClientBalance(0)
+    }
+  }
+
+  const handleClearCustomer = () => {
+    setForm((prev) => ({
+      ...prev,
+      client_id: '',
+      billing_name: '',
+      phone: '',
+      billing_address: '',
+    }))
+    setClientBalance(0)
   }
 
   // ── Row Updates & Dynamic Computations ────────────────────────────────────
@@ -309,6 +365,35 @@ export default function InvoiceForm() {
     })
   }
 
+  // ── Handle Item Selection from Library ────────────────────────────────────
+  const handleSelectItem = (index, selectedItem) => {
+    setForm((prev) => {
+      const nextItems = [...prev.items]
+      const row = { ...nextItems[index] }
+      row.description = selectedItem.name
+      if (selectedItem.unit) {
+        row.unit = selectedItem.unit
+      }
+      if (Number(selectedItem.rate) > 0) {
+        row.rate = selectedItem.rate
+        if (!row.quantity || Number(row.quantity) <= 0) {
+          row.quantity = 1
+        }
+        const qty = Number(row.quantity) || 1
+        const rate = Number(selectedItem.rate) || 0
+        const base = qty * rate
+        let discAmt = Number(row.discount_amount) || 0
+        if (Number(row.discount_percent) > 0) {
+          discAmt = (base * Number(row.discount_percent)) / 100
+          row.discount_amount = discAmt ? discAmt.toFixed(2).replace(/\.00$/, '') : ''
+        }
+        row.amount = Math.max(0, base - discAmt)
+      }
+      nextItems[index] = row
+      return { ...prev, items: nextItems }
+    })
+  }
+
   const addRow = () => {
     setForm((prev) => ({
       ...prev,
@@ -355,8 +440,14 @@ export default function InvoiceForm() {
   // ── Save Invoice ─────────────────────────────────────────────────────────
   const handleSave = async (e) => {
     if (e) e.preventDefault()
-    if (!form.client_id) {
-      notify('Please select a Customer / Party first.', 'error')
+
+    // Use billing_name if set, otherwise fall back to phone (user typed only a phone number)
+    const customerName = (form.billing_name || '').trim()
+    const phoneAsName = (form.phone || '').trim()
+    const effectiveName = customerName || phoneAsName
+
+    if (!effectiveName && !form.client_id) {
+      notify('Please enter a Customer / Party name or phone number.', 'error')
       return
     }
 
@@ -385,16 +476,47 @@ export default function InvoiceForm() {
 
     setSaving(true)
     try {
+      let finalClientId = form.client_id
+
+      // Auto-create client in database if not selected from existing list
+      if (!finalClientId && effectiveName) {
+        // Match by name OR by phone digits (covers case where only phone was typed)
+        const existing = clients.find(
+          (c) =>
+            c.name?.trim().toLowerCase() === effectiveName.toLowerCase() ||
+            (phoneAsName &&
+              (c.phone || '').replace(/\D/g, '') === phoneAsName.replace(/\D/g, ''))
+        )
+        if (existing) {
+          finalClientId = existing.id
+        } else {
+          // Insert new party — when only phone typed, phone number becomes the name too
+          const { data: newClient, error: clientErr } = await supabase
+            .from('clients')
+            .insert({
+              name: effectiveName,
+              phone: form.phone?.trim() || null,
+              address: form.billing_address?.trim() || null,
+            })
+            .select()
+            .single()
+
+          if (clientErr) throw new Error(`Could not auto-add customer: ${clientErr.message}`)
+          finalClientId = newClient.id
+          setClients((prev) => [...prev, newClient])
+        }
+      }
+
       const derivedStatus =
         receivedAmount >= finalTotal && finalTotal > 0
           ? 'Paid'
           : receivedAmount > 0
-          ? 'Partially Paid'
-          : 'Unpaid'
+            ? 'Partially Paid'
+            : 'Unpaid'
 
       const payload = {
         invoice_number: form.invoice_number,
-        client_id: form.client_id,
+        client_id: finalClientId,
         event_type: 'Sale',
         event_date: null,
         issue_date: form.invoice_date,
@@ -433,12 +555,73 @@ export default function InvoiceForm() {
       setDirty(false)
       baselineRef.current = JSON.stringify(form)
       releaseGuard()
-      notify(isEdit ? 'Invoice updated successfully!' : 'Sale invoice created successfully!')
+
+      // ── Auto-save items to database library for future use ─────────────────
+      try {
+        await saveItemsToLibrary(activeItems)
+        loadItemsLibrary().then(setItemsList)
+      } catch (e) {
+        console.warn('Item library sync:', e)
+      }
+
+      // ── Automatic WhatsApp PDF Sending ─────────────────────────────────────
+      let waError = null
+      const customerPhone = form.phone?.trim()
+      if (autoSendWhatsApp && customerPhone) {
+        setWhatsAppSending(true)
+        try {
+          const paymentsForPdf =
+            receivedAmount > 0
+              ? [
+                  {
+                    amount: receivedAmount,
+                    payment_date: form.invoice_date,
+                    mode: form.payment_type,
+                    note: form.description || 'Payment received at creation',
+                    is_advance: true,
+                  },
+                ]
+              : []
+
+          const waResult = await sendInvoicePdfViaWhatsApp({
+            invoice: {
+              ...payload,
+              id: savedId,
+            },
+            client: {
+              id: finalClientId,
+              name: effectiveName,
+              phone: customerPhone,
+              address: form.billing_address?.trim(),
+            },
+            profile: profile || {},
+            payments: paymentsForPdf,
+          })
+
+          if (!waResult.success) {
+            waError = waResult.error
+          }
+        } catch (err) {
+          waError = err.message || 'Error triggering WhatsApp delivery'
+        } finally {
+          setWhatsAppSending(false)
+        }
+      }
+
+      if (waError) {
+        notify(`Invoice saved! WhatsApp delivery failed: ${waError}`, 'error')
+      } else if (autoSendWhatsApp && customerPhone) {
+        notify(`Invoice saved & PDF sent to customer on WhatsApp (${customerPhone})!`)
+      } else {
+        notify(isEdit ? 'Invoice updated successfully!' : 'Sale invoice created successfully!')
+      }
+
       navigate(`/invoices/${savedId}`)
     } catch (err) {
       notify(err.message || 'Error saving invoice', 'error')
     } finally {
       setSaving(false)
+      setWhatsAppSending(false)
     }
   }
 
@@ -502,36 +685,29 @@ export default function InvoiceForm() {
           {/* Customer & Billing Address (Left 6 cols) */}
           <div className="space-y-3 lg:col-span-6">
             <div>
-              <div className="flex items-center justify-between">
+              <div className="mb-1 flex items-center justify-between">
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
-                  Customer <span className="text-red-500">*</span>
+                  Customer / Party <span className="text-red-500">*</span>
                 </label>
                 <button
                   type="button"
                   onClick={() => setClientModalOpen(true)}
                   className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
                 >
-                  + Add Party
+                  + Add Party (Details)
                 </button>
               </div>
-              <div className="relative mt-1">
-                <select
-                  required
-                  value={form.client_id}
-                  onChange={(e) => handleClientSelect(e.target.value)}
-                  className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                >
-                  <option value="">Select customer…</option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} {c.phone ? `(${c.phone})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="mt-1 text-xs font-semibold text-red-600 dark:text-red-400">
-                BAL: {formatCurrency(clientBalance)}
-              </div>
+              <CustomerCombobox
+                clients={clients}
+                selectedClientId={form.client_id}
+                customerName={form.billing_name}
+                onSelectClient={handleClientSelect}
+                onNameChange={handleCustomerNameChange}
+                onClear={handleClearCustomer}
+                onPhoneInput={(phone) => setForm((prev) => ({ ...prev, phone }))}
+                clientBalance={clientBalance}
+                placeholder="Search party or type new name..."
+              />
             </div>
 
             <div>
@@ -540,7 +716,7 @@ export default function InvoiceForm() {
               </label>
               <textarea
                 rows={2}
-                placeholder="Billing Address"
+                placeholder="Enter customer address..."
                 value={form.billing_address}
                 onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
                 className="mt-1 w-full rounded border border-gray-300 bg-white p-2.5 text-sm text-gray-800 placeholder-gray-400 shadow-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
@@ -548,47 +724,38 @@ export default function InvoiceForm() {
             </div>
           </div>
 
-          {/* Billing Name, Phone No, E-Way Bill No (Right 6 cols) */}
+          {/* Phone No & E-Way Bill No (Right 6 cols) */}
           <div className="space-y-3 lg:col-span-6">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
-                  Billing Name (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Billing Name"
-                  value={form.billing_name}
-                  onChange={(e) => setForm({ ...form, billing_name: e.target.value })}
-                  className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                />
-              </div>
-
               <div>
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
                   Phone No.
                 </label>
                 <input
                   type="text"
-                  placeholder="Phone No."
+                  placeholder="e.g. 9876543210"
                   value={form.phone}
                   onChange={(e) => setForm({ ...form, phone: e.target.value })}
                   className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                 />
               </div>
+
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
+                  E-Way Bill No.
+                </label>
+                <input
+                  type="text"
+                  placeholder="E-Way Bill No."
+                  value={form.eway_bill_no}
+                  onChange={(e) => setForm({ ...form, eway_bill_no: e.target.value })}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
-                E-Way Bill No.
-              </label>
-              <input
-                type="text"
-                placeholder="E-Way Bill No."
-                value={form.eway_bill_no}
-                onChange={(e) => setForm({ ...form, eway_bill_no: e.target.value })}
-                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-              />
+            <div className="rounded-md border border-dashed border-gray-200 bg-gray-50/70 p-3 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800/40 dark:text-gray-400">
+              <span className="font-semibold text-gray-700 dark:text-gray-300">💡 Easy Billing:</span> You don't need to add parties in advance. Just type their name and phone number above, and they will be saved to your database automatically when creating the invoice!
             </div>
           </div>
         </div>
@@ -625,14 +792,14 @@ export default function InvoiceForm() {
                     {idx + 1}
                   </td>
 
-                  {/* ITEM */}
-                  <td className="border-r border-gray-200 px-2 py-1.5 dark:border-gray-700">
-                    <input
-                      type="text"
-                      placeholder="e.g. Soft copy Studio / Candid Photography"
+                  {/* ITEM (with Autocomplete and Auto-Save to Database) */}
+                  <td className="relative border-r border-gray-200 px-2 py-1.5 dark:border-gray-700">
+                    <ItemCombobox
                       value={row.description}
-                      onChange={(e) => updateRow(idx, 'description', e.target.value)}
-                      className="w-full rounded border border-gray-200 bg-white px-2.5 py-1 text-sm font-medium text-gray-800 placeholder-gray-400 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                      onChange={(val) => updateRow(idx, 'description', val)}
+                      onSelectItem={(item) => handleSelectItem(idx, item)}
+                      itemsList={itemsList}
+                      placeholder="e.g. Soft copy Studio / Candid Photography"
                     />
                   </td>
 
@@ -972,23 +1139,61 @@ export default function InvoiceForm() {
             </div>
           </div>
 
-          {/* ACTION BUTTONS (Share & Save) */}
-          <div className="mt-4 flex items-center justify-end gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
-            <Link
-              to="/invoices"
-              className="rounded px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+          {/* ACTION BUTTONS (WhatsApp Auto-Send & Save) */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+            {/* WhatsApp Auto-Send Toggle */}
+            <label
+              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold border transition cursor-pointer select-none ${
+                autoSendWhatsApp && form.phone?.trim()
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-600 shadow-sm'
+                  : 'border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400'
+              }`}
+              title={
+                form.phone?.trim()
+                  ? `Invoice PDF will be sent automatically to ${form.phone}`
+                  : 'Enter a customer phone number above to send WhatsApp PDF'
+              }
             >
-              Cancel
-            </Link>
+              <input
+                type="checkbox"
+                checked={autoSendWhatsApp}
+                onChange={(e) => setAutoSendWhatsApp(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <WhatsAppIcon width={16} height={16} className={autoSendWhatsApp && form.phone?.trim() ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'} />
+              <span>
+                Send PDF on WhatsApp
+                {form.phone?.trim() ? (
+                  <span className="font-mono text-[11px] font-bold ml-1 text-emerald-700 dark:text-emerald-300">
+                    ({form.phone.trim()})
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-gray-400 ml-1">(Enter phone above)</span>
+                )}
+              </span>
+            </label>
 
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-1.5 rounded-md bg-blue-600 px-6 py-2 text-xs font-bold uppercase tracking-wider text-white shadow-md transition hover:bg-blue-700 active:scale-95 disabled:opacity-50"
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/invoices"
+                className="rounded px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </Link>
+
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving || whatsAppSending}
+                className="flex items-center gap-1.5 rounded-md bg-blue-600 px-6 py-2 text-xs font-bold uppercase tracking-wider text-white shadow-md transition hover:bg-blue-700 active:scale-95 disabled:opacity-50"
+              >
+                {saving
+                  ? 'Saving…'
+                  : whatsAppSending
+                  ? 'Sending WhatsApp PDF…'
+                  : 'Save Invoice'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1002,7 +1207,7 @@ export default function InvoiceForm() {
           setClients((list) =>
             [...list, newClient].sort((a, b) => a.name.localeCompare(b.name))
           )
-          handleClientSelect(newClient.id)
+          handleClientSelect(newClient)
         }}
       />
     </div>

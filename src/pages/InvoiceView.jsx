@@ -69,11 +69,11 @@ export default function InvoiceView() {
 
   const upiUri = invoice && profile
     ? buildUpiUri({
-        upiId: profile.upi_id,
-        payeeName: profile.upi_payee_name || profile.studio_name,
-        amount: balance || invoice.total,
-        note: invoice.invoice_number,
-      })
+      upiId: profile.upi_id,
+      payeeName: profile.upi_payee_name || profile.studio_name,
+      amount: balance || invoice.total,
+      note: invoice.invoice_number,
+    })
     : ''
 
   const syncStatus = async (nextPaid) => {

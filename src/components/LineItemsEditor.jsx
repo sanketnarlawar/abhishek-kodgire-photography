@@ -1,11 +1,32 @@
+import { useState, useEffect } from 'react'
 import { PlusIcon, TrashIcon } from './icons'
 import { formatCurrency } from '../lib/format'
+import ItemCombobox from './ItemCombobox'
+import { loadItemsLibrary } from '../lib/itemService'
 
 // Reusable editor for service line items. `items` is an array of
 // { description, quantity, rate }. Amount is derived (quantity * rate).
 export default function LineItemsEditor({ items, onChange }) {
+  const [itemsList, setItemsList] = useState([])
+
+  useEffect(() => {
+    loadItemsLibrary().then(setItemsList)
+  }, [])
+
   const update = (index, field, value) => {
     const next = items.map((it, i) => (i === index ? { ...it, [field]: value } : it))
+    onChange(next)
+  }
+
+  const handleSelectItem = (index, selectedItem) => {
+    const next = items.map((it, i) => {
+      if (i !== index) return it
+      return {
+        ...it,
+        description: selectedItem.name,
+        rate: Number(selectedItem.rate) > 0 ? Number(selectedItem.rate) : it.rate,
+      }
+    })
     onChange(next)
   }
 
@@ -29,12 +50,13 @@ export default function LineItemsEditor({ items, onChange }) {
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {items.map((item, index) => (
               <tr key={index} className="bg-white dark:bg-gray-900/40">
-                <td className="px-3 py-2">
-                  <input
-                    className="input"
-                    placeholder="e.g. Candid Photography"
+                <td className="relative px-3 py-2">
+                  <ItemCombobox
                     value={item.description}
-                    onChange={(e) => update(index, 'description', e.target.value)}
+                    onChange={(val) => update(index, 'description', val)}
+                    onSelectItem={(it) => handleSelectItem(index, it)}
+                    itemsList={itemsList}
+                    placeholder="e.g. Candid Photography"
                   />
                 </td>
                 <td className="px-3 py-2">
