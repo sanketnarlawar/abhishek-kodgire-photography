@@ -87,8 +87,9 @@ export default function InvoiceForm() {
     discount: '',
     round_off: false,
     received_checked: false,
-    received: 0,
+    received: '',
   })
+  const [receivedIsCustom, setReceivedIsCustom] = useState(false)
 
   const baselineRef = useRef(null)
   const [dirty, setDirty] = useState(false)
@@ -193,6 +194,9 @@ export default function InvoiceForm() {
             received_checked: paidTotal > 0,
             received: paidTotal > 0 ? paidTotal : '',
           })
+          if (paidTotal > 0) {
+            setReceivedIsCustom(true)
+          }
           if (data.client_id) {
             loadClientBalance(data.client_id)
           }
@@ -309,6 +313,11 @@ export default function InvoiceForm() {
 
   // ── Row Updates & Dynamic Computations ────────────────────────────────────
   const updateRow = (index, field, value) => {
+    // For numeric fields, reject non-numeric input
+    if (field !== 'description' && field !== 'unit' && value !== '' && !/^\d*\.?\d*$/.test(value)) {
+      return
+    }
+
     setForm((prev) => {
       const nextItems = [...prev.items]
       const row = { ...nextItems[index], [field]: value }
@@ -435,11 +444,76 @@ export default function InvoiceForm() {
   const rawTotal = Math.max(0, subtotal - overallDiscount)
   const finalTotal = form.round_off ? Math.round(rawTotal) : rawTotal
 
-  const receivedAmount = form.received_checked
-    ? Number(form.received) || 0
-    : 0
+  // Auto-sync received amount when checked and user hasn't typed custom amount,
+  // or clamp if finalTotal dropped below manual received amount
+  useEffect(() => {
+    if (form.received_checked && !receivedIsCustom) {
+      const target = finalTotal > 0 ? finalTotal : 0
+      if (form.received !== target) {
+        setForm((prev) => ({ ...prev, received: target }))
+      }
+    } else if (form.received_checked && receivedIsCustom) {
+      if (Number(form.received) > finalTotal) {
+        setForm((prev) => ({ ...prev, received: finalTotal }))
+      }
+    }
+  }, [finalTotal, form.received_checked, receivedIsCustom, form.received])
+
+  const receivedAmount = useMemo(() => {
+    if (!form.received_checked) return 0
+    if (form.received === '') {
+      return receivedIsCustom ? 0 : finalTotal
+    }
+    const num = Number(form.received) || 0
+    return Math.min(finalTotal, Math.max(0, num))
+  }, [form.received_checked, form.received, finalTotal, receivedIsCustom])
 
   const balanceDue = Math.max(0, finalTotal - receivedAmount)
+
+  const handleReceivedToggle = (checked) => {
+    setReceivedIsCustom(false)
+    setForm((prev) => ({
+      ...prev,
+      received_checked: checked,
+      received: checked ? (finalTotal > 0 ? finalTotal : 0) : '',
+    }))
+  }
+
+  const handleReceivedChange = (e) => {
+    const val = e.target.value
+    if (val === '') {
+      setReceivedIsCustom(true)
+      setForm((prev) => ({ ...prev, received: '' }))
+      return
+    }
+    // Only allow numbers and decimal point
+    if (!/^\d*\.?\d*$/.test(val)) return
+
+    const num = Number(val)
+    if (num < 0) return
+    if (num > finalTotal) {
+      notify(`Received amount cannot be more than total bill amount (${formatCurrency(finalTotal)})`, 'warning')
+      setReceivedIsCustom(true)
+      setForm((prev) => ({ ...prev, received: finalTotal }))
+      return
+    }
+    setReceivedIsCustom(true)
+    setForm((prev) => ({ ...prev, received: val }))
+  }
+
+  const handleReceivedBlur = () => {
+    if (!form.received_checked) return
+    if (form.received === '') return
+    const num = Number(form.received)
+    if (num > finalTotal) {
+      setForm((prev) => ({ ...prev, received: finalTotal }))
+    }
+  }
+
+  const handleSetFullReceived = () => {
+    setReceivedIsCustom(false)
+    setForm((prev) => ({ ...prev, received_checked: true, received: finalTotal > 0 ? finalTotal : 0 }))
+  }
 
   // ── Save Invoice ─────────────────────────────────────────────────────────
   const handleSave = async (e) => {
@@ -481,6 +555,17 @@ export default function InvoiceForm() {
     if (activeItems.length === 0) {
       notify('Please enter at least one item description and amount/rate.', 'error')
       return
+    }
+
+    if (form.received_checked) {
+      const entered = Number(form.received) || 0
+      if (entered > finalTotal) {
+        notify(
+          `Received amount (${formatCurrency(entered)}) cannot be more than the total bill amount (${formatCurrency(finalTotal)}).`,
+          'error'
+        )
+        return
+      }
     }
 
     setSaving(true)
@@ -817,8 +902,8 @@ export default function InvoiceForm() {
                   {/* QTY */}
                   <td className="border-r border-gray-200 px-1.5 py-1.5 text-center dark:border-gray-700">
                     <input
-                      type="number"
-                      min="0"
+                      type="text"
+                      inputMode="numeric"
                       placeholder="1"
                       value={row.quantity}
                       onChange={(e) => updateRow(idx, 'quantity', e.target.value)}
@@ -829,8 +914,8 @@ export default function InvoiceForm() {
                   {/* FREE QTY */}
                   <td className="border-r border-gray-200 px-1.5 py-1.5 text-center dark:border-gray-700">
                     <input
-                      type="number"
-                      min="0"
+                      type="text"
+                      inputMode="numeric"
                       placeholder="0"
                       value={row.free_qty}
                       onChange={(e) => updateRow(idx, 'free_qty', e.target.value)}
@@ -856,8 +941,8 @@ export default function InvoiceForm() {
                   {/* PRICE/UNIT */}
                   <td className="border-r border-gray-200 px-1.5 py-1.5 text-right dark:border-gray-700">
                     <input
-                      type="number"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       placeholder="0"
                       value={row.rate}
                       onChange={(e) => updateRow(idx, 'rate', e.target.value)}
@@ -869,16 +954,16 @@ export default function InvoiceForm() {
                   <td className="border-r border-gray-200 px-1.5 py-1.5 dark:border-gray-700">
                     <div className="grid grid-cols-2 gap-1">
                       <input
-                        type="number"
-                        min="0"
+                        type="text"
+                        inputMode="decimal"
                         placeholder="%"
                         value={row.discount_percent}
                         onChange={(e) => updateRow(idx, 'discount_percent', e.target.value)}
                         className="w-full rounded border border-gray-200 bg-white px-1 py-1 text-center text-sm text-gray-800 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                       />
                       <input
-                        type="number"
-                        min="0"
+                        type="text"
+                        inputMode="decimal"
                         placeholder="₹"
                         value={row.discount_amount}
                         onChange={(e) => updateRow(idx, 'discount_amount', e.target.value)}
@@ -890,8 +975,8 @@ export default function InvoiceForm() {
                   {/* AMOUNT (EDITABLE!) */}
                   <td className="border-r border-gray-200 px-1.5 py-1.5 text-right dark:border-gray-700">
                     <input
-                      type="number"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       placeholder="0"
                       value={row.amount}
                       onChange={(e) => updateRow(idx, 'amount', e.target.value)}
@@ -1077,11 +1162,16 @@ export default function InvoiceForm() {
               <span className="font-semibold text-gray-600 dark:text-gray-300">Discount</span>
               <div className="flex items-center gap-1">
                 <input
-                  type="number"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="0"
                   value={form.discount}
-                  onChange={(e) => setForm({ ...form, discount: e.target.value })}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                      setForm({ ...form, discount: val })
+                    }
+                  }}
                   className="h-8 w-28 rounded border border-gray-300 bg-white px-2 text-right font-medium text-gray-800 shadow-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                 />
               </div>
@@ -1112,33 +1202,65 @@ export default function InvoiceForm() {
             </div>
 
             {/* Received */}
-            <div className="flex items-center justify-between border-t border-gray-200 pt-2 dark:border-gray-700">
-              <label className="flex items-center gap-2 cursor-pointer font-semibold text-gray-700 dark:text-gray-200">
-                <input
-                  type="checkbox"
-                  checked={form.received_checked}
-                  onChange={(e) => {
-                    const checked = e.target.checked
-                    setForm({
-                      ...form,
-                      received_checked: checked,
-                      received: 0,
-                    })
-                  }}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                Received
-              </label>
-              <input
-                type="number"
-                min="0"
-                max={finalTotal}
-                disabled={!form.received_checked}
-                placeholder="0"
-                value={form.received_checked ? (form.received ?? 0) : ''}
-                onChange={(e) => setForm({ ...form, received: e.target.value })}
-                className="h-8 w-28 rounded border border-gray-300 bg-white px-2 text-right font-medium text-gray-800 shadow-sm disabled:bg-gray-100 disabled:text-gray-400 focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:disabled:bg-gray-700/50"
-              />
+            <div className="border-t border-gray-200 pt-2 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer font-semibold text-gray-700 dark:text-gray-200 select-none">
+                  <input
+                    type="checkbox"
+                    checked={form.received_checked}
+                    onChange={(e) => handleReceivedToggle(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Received</span>
+                </label>
+
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    disabled={!form.received_checked}
+                    placeholder={form.received_checked ? String(finalTotal) : '0'}
+                    value={form.received_checked ? form.received : ''}
+                    onChange={handleReceivedChange}
+                    onBlur={handleReceivedBlur}
+                    className="h-8 w-28 rounded border border-gray-300 bg-white px-2 text-right font-medium text-gray-800 shadow-sm disabled:bg-gray-100 disabled:text-gray-400 focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:disabled:bg-gray-700/50"
+                  />
+                </div>
+              </div>
+
+              {/* Status indicator / Full Amount shortcut */}
+              {form.received_checked && (
+                <div className="mt-1 flex items-center justify-between text-[11px]">
+                  {Number(form.received) > finalTotal ? (
+                    <span className="font-semibold text-red-600 dark:text-red-400">
+                      Cannot exceed bill amount
+                    </span>
+                  ) : receivedAmount >= finalTotal && finalTotal > 0 ? (
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                      ✓ Full payment received
+                    </span>
+                  ) : receivedAmount > 0 ? (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      Partial: {formatCurrency(receivedAmount)}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400 dark:text-gray-500">
+                      Enter received amount
+                    </span>
+                  )}
+
+                  {finalTotal > 0 && receivedAmount < finalTotal && (
+                    <button
+                      type="button"
+                      onClick={handleSetFullReceived}
+                      className="font-semibold text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400"
+                      title="Set received to full bill amount"
+                    >
+                      Set Full (₹{finalTotal.toLocaleString('en-IN')})
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Balance */}

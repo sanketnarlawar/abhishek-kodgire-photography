@@ -66,3 +66,14 @@ h3 {
     radial-gradient(at 55% 92%, rgba(236, 72, 153, 0.08), transparent 48%);
   background-attachment: fixed;
 }
+
+/* Remove up/down spin buttons from number inputs across all browsers */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
