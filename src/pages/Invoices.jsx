@@ -4,18 +4,25 @@ import { supabase } from '../lib/supabase'
 import PageHeader from '../components/PageHeader'
 import EmptyState from '../components/EmptyState'
 import StatusBadge from '../components/StatusBadge'
-import Pagination from '../components/Pagination'
 import Modal from '../components/Modal'
 import { TableSkeleton } from '../components/Loaders'
 import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import { useSortPaginate } from '../lib/useSortPaginate'
 import { downloadCsv } from '../lib/csv'
-import { PlusIcon, InvoiceIcon, WalletIcon, TrashIcon, ArrowUpDownIcon } from '../components/icons'
+import { PlusIcon, InvoiceIcon, WalletIcon, TrashIcon, ArrowUpDownIcon, CalendarIcon } from '../components/icons'
 import { formatCurrency, formatDate, INVOICE_STATUSES } from '../lib/format'
 
 const today = () => new Date().toISOString().slice(0, 10)
 const PAYMENT_MODES = ['Cash', 'Online / UPI', 'Cheque', 'Bank Transfer', 'Card']
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+const formatLocalYMD = (d) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 const getValue = (inv, key) => {
   switch (key) {
@@ -58,6 +65,51 @@ export default function Invoices() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
+  const [dateFilter, setDateFilter] = useState('all')
+  const [previousDateFilter, setPreviousDateFilter] = useState('all')
+  const [appliedCustomRange, setAppliedCustomRange] = useState(() => {
+    const todayDate = new Date()
+    const y = todayDate.getFullYear()
+    const m = String(todayDate.getMonth() + 1).padStart(2, '0')
+    const d = String(todayDate.getDate()).padStart(2, '0')
+    return {
+      start: `${y}-${m}-01`,
+      end: `${y}-${m}-${d}`,
+    }
+  })
+  const [draftCustomRange, setDraftCustomRange] = useState(() => ({
+    start: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`,
+    end: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`,
+  }))
+
+  const handleDropdownChange = (newVal) => {
+    if (newVal === 'custom') {
+      if (dateFilter !== 'custom') {
+        setPreviousDateFilter(dateFilter)
+      }
+      setDraftCustomRange({ ...appliedCustomRange })
+      setDateFilter('custom')
+    } else {
+      setDateFilter(newVal)
+      setPreviousDateFilter(newVal)
+    }
+  }
+
+  const handleApplyCustom = () => {
+    setAppliedCustomRange({ ...draftCustomRange })
+    setPreviousDateFilter('custom')
+  }
+
+  const handleCancelCustom = () => {
+    setDraftCustomRange({ ...appliedCustomRange })
+    if (previousDateFilter && previousDateFilter !== 'custom') {
+      setDateFilter(previousDateFilter)
+    } else {
+      setDateFilter('all')
+      setPreviousDateFilter('all')
+    }
+  }
+
   const [exportModalOpen, setExportModalOpen] = useState(false)
   const [exportRange, setExportRange] = useState({ start: '', end: '' })
 
@@ -106,17 +158,116 @@ export default function Invoices() {
     load()
   }, [])
 
+  const availablePeriods = useMemo(() => {
+    const keys = new Set()
+    invoices.forEach((i) => i.issue_date && keys.add(i.issue_date.slice(0, 7)))
+    return [...keys].sort().reverse()
+  }, [invoices])
+
+  const periodLabel = (key) => {
+    if (key === 'all') return 'All time'
+    if (!key.includes('-')) return key
+    const [y, m] = key.split('-')
+    return `${MONTH_NAMES[Number(m) - 1]} ${y}`
+  }
+
+  const activeRangeLabel = useMemo(() => {
+    const todayDate = new Date()
+    const y = todayDate.getFullYear()
+    const m = todayDate.getMonth()
+
+    switch (dateFilter) {
+      case 'today':
+        return 'Today'
+      case 'this_week':
+        return 'This Week'
+      case 'this_month':
+        return `This Month (${MONTH_NAMES[m]})`
+      case 'this_year':
+        return `This Year (${y})`
+      case 'all':
+        return 'All Time'
+      case 'custom': {
+        const { start, end } = appliedCustomRange
+        if (start && end) return `${formatDate(start)} – ${formatDate(end)}`
+        if (start) return `From ${formatDate(start)}`
+        if (end) return `Until ${formatDate(end)}`
+        return 'Custom Range'
+      }
+      default:
+        return periodLabel(dateFilter)
+    }
+  }, [dateFilter, appliedCustomRange])
+
+  const isDateInFilter = useMemo(() => {
+    const todayDate = new Date()
+    const todayStr = formatLocalYMD(todayDate)
+
+    // Current week: Monday to Sunday
+    const day = todayDate.getDay()
+    const diffToMonday = day === 0 ? -6 : 1 - day
+    const monday = new Date(todayDate)
+    monday.setDate(todayDate.getDate() + diffToMonday)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    const weekStart = formatLocalYMD(monday)
+    const weekEnd = formatLocalYMD(sunday)
+
+    // Current month
+    const y = todayDate.getFullYear()
+    const m = todayDate.getMonth()
+    const monthStart = `${y}-${String(m + 1).padStart(2, '0')}-01`
+    const lastDayOfMonth = new Date(y, m + 1, 0).getDate()
+    const monthEnd = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`
+
+    // Current year
+    const yearStart = `${y}-01-01`
+    const yearEnd = `${y}-12-31`
+
+    return (dateStr) => {
+      if (!dateStr) return false
+      const d = dateStr.slice(0, 10)
+
+      if (dateFilter === 'all') return true
+      if (dateFilter === 'today') return d === todayStr
+      if (dateFilter === 'this_week') return d >= weekStart && d <= weekEnd
+      if (dateFilter === 'this_month') return d >= monthStart && d <= monthEnd
+      if (dateFilter === 'this_year') return d >= yearStart && d <= yearEnd
+      if (dateFilter === 'custom') {
+        const { start, end } = appliedCustomRange
+        if (start && d < start) return false
+        if (end && d > end) return false
+        return true
+      }
+      // If a specific YYYY-MM is selected
+      return dateStr.slice(0, 7) === dateFilter
+    }
+  }, [dateFilter, appliedCustomRange])
+
   const filtered = useMemo(
     () =>
       invoices.filter((inv) => {
         const matchesStatus = statusFilter === 'All' || inv.status === statusFilter
+        const matchesDate = isDateInFilter(inv.issue_date)
         const haystack = `${inv.client?.name || ''} ${inv.client?.phone || ''} ${inv.invoice_number || ''}`.toLowerCase()
-        return matchesStatus && haystack.includes(search.toLowerCase())
+        return matchesStatus && matchesDate && haystack.includes(search.toLowerCase())
       }),
-    [invoices, search, statusFilter]
+    [invoices, search, statusFilter, isDateInFilter]
   )
 
   const table = useSortPaginate(filtered, { initialKey: 'issue_date', initialDir: 'desc', pageSize: 10, getValue })
+
+  const totals = useMemo(() => {
+    return table.sorted.reduce(
+      (acc, inv) => {
+        acc.total += Number(inv.total) || 0
+        acc.paid += Number(inv.paid_amount) || 0
+        acc.balance += Number(inv.balance) || 0
+        return acc
+      },
+      { total: 0, paid: 0, balance: 0 }
+    )
+  }, [table.sorted])
 
   const openPaymentModal = (inv) => {
     setActiveInv(inv)
@@ -222,19 +373,91 @@ export default function Invoices() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           className="input max-w-sm"
-          placeholder="Search by client, phone, date…"
+          placeholder="Search by client, phone, invoice #…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <select className="input max-w-[180px]" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option>All</option>
+        <select
+          className="input max-w-[170px]"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="All">All Statuses</option>
           {INVOICE_STATUSES.map((s) => (
-            <option key={s}>{s}</option>
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
+
+        <div className="relative">
+          <select
+            className="input max-w-[180px]"
+            value={dateFilter}
+            onChange={(e) => handleDropdownChange(e.target.value)}
+          >
+            <option value="today">Today</option>
+            <option value="this_week">This Week</option>
+            <option value="this_month">This Month</option>
+            <option value="this_year">This Year</option>
+            <option value="all">All time</option>
+            <option value="custom">Custom Range</option>
+            {availablePeriods.length > 0 && (
+              <optgroup label="Monthly Archives">
+                {availablePeriods.map((k) => (
+                  <option key={k} value={k}>
+                    {periodLabel(k)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </div>
+
+        {dateFilter === 'custom' && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-1.5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <span className="flex items-center text-gray-400">
+              <CalendarIcon width={16} height={16} />
+            </span>
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+              <span className="font-semibold text-gray-500 dark:text-gray-400">From</span>
+              <input
+                type="date"
+                className="rounded-lg border border-gray-300 bg-gray-50 px-2 py-1 text-xs text-gray-800 transition focus:border-brand-500 focus:bg-white focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                value={draftCustomRange.start}
+                onChange={(e) => setDraftCustomRange((r) => ({ ...r, start: e.target.value }))}
+              />
+            </label>
+            <span className="text-xs font-medium text-gray-400">to</span>
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+              <span className="font-semibold text-gray-500 dark:text-gray-400">To</span>
+              <input
+                type="date"
+                className="rounded-lg border border-gray-300 bg-gray-50 px-2 py-1 text-xs text-gray-800 transition focus:border-brand-500 focus:bg-white focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                value={draftCustomRange.end}
+                onChange={(e) => setDraftCustomRange((r) => ({ ...r, end: e.target.value }))}
+              />
+            </label>
+
+            <div className="flex items-center gap-1.5 border-l border-gray-200 pl-2 dark:border-gray-700">
+              <button
+                type="button"
+                onClick={handleApplyCustom}
+                className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700 active:scale-95"
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelCustom}
+                className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-600 transition hover:bg-gray-50 active:scale-95 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -242,14 +465,14 @@ export default function Invoices() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={InvoiceIcon}
-          title={search || statusFilter !== 'All' ? 'No matching invoices' : 'No invoices yet'}
+          title={search || statusFilter !== 'All' || dateFilter !== 'all' ? 'No matching invoices' : 'No invoices yet'}
           description={
-            search || statusFilter !== 'All'
-              ? 'Try changing your search or status filter.'
+            search || statusFilter !== 'All' || dateFilter !== 'all'
+              ? `No invoices found for ${activeRangeLabel}${statusFilter !== 'All' ? ` with status "${statusFilter}"` : ''}. Try changing your filters.`
               : 'Create your first invoice for a client.'
           }
           action={
-            !(search || statusFilter !== 'All') && (
+            !(search || statusFilter !== 'All' || dateFilter !== 'all') && (
               <Link to="/invoices/new" className="btn-primary">
                 <PlusIcon /> New Invoice
               </Link>
@@ -273,7 +496,7 @@ export default function Invoices() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {table.pageRows.map((inv) => (
+                {table.sorted.map((inv) => (
                   <tr key={inv.id} className="row-hover bg-white dark:bg-gray-900/40">
                     <td className="px-4 py-3">
                       <Link to={`/invoices/${inv.id}`} className="font-semibold text-brand-600 hover:underline">
@@ -346,7 +569,22 @@ export default function Invoices() {
               </tbody>
             </table>
           </div>
-          <Pagination page={table.page} totalPages={table.totalPages} total={table.total} onPage={table.setPage} />
+          <div className="flex flex-wrap items-center justify-between gap-3 px-2 pt-3 text-xs text-gray-500 dark:text-gray-400">
+            <span>Showing all {table.total} {table.total === 1 ? 'invoice' : 'invoices'}</span>
+            {table.total > 0 && (
+              <div className="flex flex-wrap items-center gap-4 text-xs">
+                <span>
+                  Total: <strong className="font-bold text-gray-900 dark:text-gray-100">{formatCurrency(totals.total)}</strong>
+                </span>
+                <span>
+                  Paid: <strong className="font-bold text-green-600 dark:text-green-400">{formatCurrency(totals.paid)}</strong>
+                </span>
+                <span>
+                  Remaining: <strong className={`font-bold ${totals.balance > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>{formatCurrency(totals.balance)}</strong>
+                </span>
+              </div>
+            )}
+          </div>
         </>
       )}
 

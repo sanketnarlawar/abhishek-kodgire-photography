@@ -97,12 +97,10 @@ export default function Layout({ children }) {
           end={end}
           title={showLabels ? undefined : label}
           className={({ isActive }) =>
-            `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
-              showLabels ? '' : 'justify-center'
-            } ${
-              isActive
-                ? 'bg-brand-600 text-white shadow-sm'
-                : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+            `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${showLabels ? '' : 'justify-center'
+            } ${isActive
+              ? 'bg-brand-600 text-white shadow-sm'
+              : 'text-gray-400 hover:bg-gray-800 hover:text-white'
             }`
           }
         >
@@ -144,9 +142,8 @@ export default function Layout({ children }) {
     <div className="flex min-h-screen">
       {/* Desktop sidebar — always dark */}
       <aside
-        className={`hidden shrink-0 flex-col border-r border-gray-800 bg-gray-900 p-4 transition-all md:flex ${
-          collapsed ? 'w-20' : 'w-64'
-        }`}
+        className={`hidden shrink-0 flex-col border-r border-gray-800 bg-gray-900 p-4 transition-all md:flex ${collapsed ? 'w-20' : 'w-64'
+          }`}
       >
         <div className="mb-6 flex items-center justify-between">
           <Brand showText={!collapsed} />
@@ -165,13 +162,24 @@ export default function Layout({ children }) {
         <NavList showLabels={!collapsed} />
         <button
           onClick={handleSignOut}
-          className={`mt-4 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-400 transition hover:bg-gray-800 hover:text-white ${
-            collapsed ? 'justify-center' : 'justify-start'
-          }`}
+          className={`mt-4 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-400 transition hover:bg-gray-800 hover:text-white ${collapsed ? 'justify-center' : 'justify-start'
+            }`}
           title="Sign out"
         >
           <LogoutIcon /> {!collapsed && 'Sign out'}
         </button>
+
+        {!collapsed ? (
+          <div className="mt-3 border-t border-gray-800/80 pt-3 text-center">
+            <p className="text-xs text-gray-500">
+              Developed by <span className="font-medium text-gray-300">Sanket Narlawar</span>
+            </p>
+          </div>
+        ) : (
+          <div className="mt-3 border-t border-gray-800/80 pt-2 text-center" title="Developed by Sanket Narlawar">
+            <span className="text-[10px] font-medium text-gray-500">SN</span>
+          </div>
+        )}
       </aside>
 
       {/* Mobile drawer — always dark */}
@@ -192,6 +200,12 @@ export default function Layout({ children }) {
             >
               <LogoutIcon /> Sign out
             </button>
+
+            <div className="mt-3 border-t border-gray-800/80 pt-3 text-center">
+              <p className="text-xs text-gray-500">
+                Developed by <span className="font-medium text-gray-300">Sanket Narlawar</span>
+              </p>
+            </div>
           </aside>
         </div>
       )}

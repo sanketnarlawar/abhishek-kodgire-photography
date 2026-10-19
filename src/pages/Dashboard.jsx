@@ -18,7 +18,7 @@ import { useTheme } from '../contexts/ThemeContext'
 import { useProfile } from '../contexts/ProfileContext'
 import { formatCurrency, formatDate } from '../lib/format'
 import { IMAGES } from '../lib/images'
-import { InvoiceIcon, WalletIcon, ClockIcon, TrendingUpIcon } from '../components/icons'
+import { InvoiceIcon, WalletIcon, ClockIcon, TrendingUpIcon, CalendarIcon } from '../components/icons'
 
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -71,7 +71,50 @@ export default function Dashboard() {
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
-  const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7))
+  const [filterType, setFilterType] = useState('today')
+  const [previousFilterType, setPreviousFilterType] = useState('today')
+  const [appliedCustomRange, setAppliedCustomRange] = useState(() => {
+    const today = new Date()
+    const y = today.getFullYear()
+    const m = String(today.getMonth() + 1).padStart(2, '0')
+    const d = String(today.getDate()).padStart(2, '0')
+    return {
+      start: `${y}-${m}-01`,
+      end: `${y}-${m}-${d}`,
+    }
+  })
+  const [draftCustomRange, setDraftCustomRange] = useState(() => ({
+    start: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`,
+    end: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`,
+  }))
+
+  const handleDropdownChange = (newVal) => {
+    if (newVal === 'custom') {
+      if (filterType !== 'custom') {
+        setPreviousFilterType(filterType)
+      }
+      setDraftCustomRange({ ...appliedCustomRange })
+      setFilterType('custom')
+    } else {
+      setFilterType(newVal)
+      setPreviousFilterType(newVal)
+    }
+  }
+
+  const handleApplyCustom = () => {
+    setAppliedCustomRange({ ...draftCustomRange })
+    setPreviousFilterType('custom')
+  }
+
+  const handleCancelCustom = () => {
+    setDraftCustomRange({ ...appliedCustomRange })
+    if (previousFilterType && previousFilterType !== 'custom') {
+      setFilterType(previousFilterType)
+    } else {
+      setFilterType('today')
+      setPreviousFilterType('today')
+    }
+  }
 
   useEffect(() => {
     const load = async () => {
@@ -88,9 +131,16 @@ export default function Dashboard() {
     load()
   }, [])
 
-  // Months that have any activity, newest first, for the period selector.
+  const formatLocalYMD = (d) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+
+  // Months that have any activity, newest first
   const availablePeriods = useMemo(() => {
-    const keys = new Set([new Date().toISOString().slice(0, 7)])
+    const keys = new Set()
     invoices.forEach((i) => i.issue_date && keys.add(i.issue_date.slice(0, 7)))
     payments.forEach((p) => p.payment_date && keys.add(p.payment_date.slice(0, 7)))
     expenses.forEach((e) => e.expense_date && keys.add(e.expense_date.slice(0, 7)))
@@ -99,20 +149,92 @@ export default function Dashboard() {
 
   const periodLabel = (key) => {
     if (key === 'all') return 'All time'
+    if (!key.includes('-')) return key
     const [y, m] = key.split('-')
     return `${MONTH_NAMES[Number(m) - 1]} ${y}`
   }
 
-  const stats = useMemo(() => {
-    const inPeriod = (dateStr) => dateStr && (period === 'all' || dateStr.slice(0, 7) === period)
+  const activeRangeLabel = useMemo(() => {
+    const today = new Date()
+    const y = today.getFullYear()
+    const m = today.getMonth()
 
-    const periodInvoices = invoices.filter((i) => inPeriod(i.issue_date))
+    switch (filterType) {
+      case 'today':
+        return 'Today'
+      case 'this_week':
+        return 'This Week'
+      case 'this_month':
+        return `This Month (${MONTH_NAMES[m]})`
+      case 'this_year':
+        return `This Year (${y})`
+      case 'all':
+        return 'All Time'
+      case 'custom': {
+        const { start, end } = appliedCustomRange
+        if (start && end) return `${formatDate(start)} – ${formatDate(end)}`
+        if (start) return `From ${formatDate(start)}`
+        if (end) return `Until ${formatDate(end)}`
+        return 'Custom Range'
+      }
+      default:
+        return periodLabel(filterType)
+    }
+  }, [filterType, appliedCustomRange])
+
+  const isDateInFilter = useMemo(() => {
+    const today = new Date()
+    const todayStr = formatLocalYMD(today)
+
+    // Current week: Monday to Sunday
+    const day = today.getDay()
+    const diffToMonday = day === 0 ? -6 : 1 - day
+    const monday = new Date(today)
+    monday.setDate(today.getDate() + diffToMonday)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    const weekStart = formatLocalYMD(monday)
+    const weekEnd = formatLocalYMD(sunday)
+
+    // Current month
+    const y = today.getFullYear()
+    const m = today.getMonth()
+    const monthStart = `${y}-${String(m + 1).padStart(2, '0')}-01`
+    const lastDayOfMonth = new Date(y, m + 1, 0).getDate()
+    const monthEnd = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`
+
+    // Current year
+    const yearStart = `${y}-01-01`
+    const yearEnd = `${y}-12-31`
+
+    return (dateStr) => {
+      if (!dateStr) return false
+      const d = dateStr.slice(0, 10)
+
+      if (filterType === 'all') return true
+      if (filterType === 'today') return d === todayStr
+      if (filterType === 'this_week') return d >= weekStart && d <= weekEnd
+      if (filterType === 'this_month') return d >= monthStart && d <= monthEnd
+      if (filterType === 'this_year') return d >= yearStart && d <= yearEnd
+      if (filterType === 'custom') {
+        const { start, end } = appliedCustomRange
+        if (start && d < start) return false
+        if (end && d > end) return false
+        return true
+      }
+      // If a specific YYYY-MM is selected
+      return dateStr.slice(0, 7) === filterType
+    }
+  }, [filterType, appliedCustomRange])
+
+  const stats = useMemo(() => {
+    const periodInvoices = invoices.filter((i) => isDateInFilter(i.issue_date))
     const invoiced = periodInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0)
     const received = payments
-      .filter((p) => inPeriod(p.payment_date))
+      .filter((p) => isDateInFilter(p.payment_date))
       .reduce((s, p) => s + (Number(p.amount) || 0), 0)
     const expensesTotal = expenses
-      .filter((e) => inPeriod(e.expense_date))
+      .filter((e) => isDateInFilter(e.expense_date))
       .reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
     // Pending = unpaid balance on invoices issued within the selected period.
@@ -133,7 +255,7 @@ export default function Dashboard() {
       profit: received - expensesTotal,
       pending,
     }
-  }, [invoices, payments, expenses, period])
+  }, [invoices, payments, expenses, isDateInFilter])
 
   const availableYears = useMemo(() => {
     const years = new Set([new Date().getFullYear()])
@@ -196,27 +318,88 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Summary</h2>
-        <select
-          className="input max-w-[200px]"
-          value={period}
-          onChange={(e) => setPeriod(e.target.value)}
-        >
-          <option value="all">All time</option>
-          {availablePeriods.map((k) => (
-            <option key={k} value={k}>
-              {periodLabel(k)}
-            </option>
-          ))}
-        </select>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Summary</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Overview of financial metrics for <span className="font-semibold text-brand-600 dark:text-brand-400">{activeRangeLabel}</span>
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          <select
+            className="input max-w-[200px]"
+            value={filterType}
+            onChange={(e) => handleDropdownChange(e.target.value)}
+          >
+            <option value="today">Today</option>
+            <option value="this_week">This Week</option>
+            <option value="this_month">This Month</option>
+            <option value="this_year">This Year</option>
+            <option value="all">All time</option>
+            <option value="custom">Custom Range</option>
+            {availablePeriods.length > 0 && (
+              <optgroup label="Monthly Archives">
+                {availablePeriods.map((k) => (
+                  <option key={k} value={k}>
+                    {periodLabel(k)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+
+          {filterType === 'custom' && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-1.5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+              <span className="flex items-center text-gray-400">
+                <CalendarIcon width={16} height={16} />
+              </span>
+              <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                <span className="font-semibold text-gray-500 dark:text-gray-400">From</span>
+                <input
+                  type="date"
+                  className="rounded-lg border border-gray-300 bg-gray-50 px-2 py-1 text-xs text-gray-800 transition focus:border-brand-500 focus:bg-white focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                  value={draftCustomRange.start}
+                  onChange={(e) => setDraftCustomRange((r) => ({ ...r, start: e.target.value }))}
+                />
+              </label>
+              <span className="text-xs font-medium text-gray-400">to</span>
+              <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                <span className="font-semibold text-gray-500 dark:text-gray-400">To</span>
+                <input
+                  type="date"
+                  className="rounded-lg border border-gray-300 bg-gray-50 px-2 py-1 text-xs text-gray-800 transition focus:border-brand-500 focus:bg-white focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                  value={draftCustomRange.end}
+                  onChange={(e) => setDraftCustomRange((r) => ({ ...r, end: e.target.value }))}
+                />
+              </label>
+
+              <div className="flex items-center gap-1.5 border-l border-gray-200 pl-2 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={handleApplyCustom}
+                  className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700 active:scale-95"
+                >
+                  Apply
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelCustom}
+                  className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-600 transition hover:bg-gray-50 active:scale-95 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label={`Invoiced · ${periodLabel(period)}`} value={stats.invoiced} icon={InvoiceIcon} tone="indigo" />
-        <StatCard label={`Received · ${periodLabel(period)}`} value={stats.received} icon={WalletIcon} tone="green" />
+        <StatCard label={`Invoiced · ${activeRangeLabel}`} value={stats.invoiced} icon={InvoiceIcon} tone="indigo" />
+        <StatCard label={`Received · ${activeRangeLabel}`} value={stats.received} icon={WalletIcon} tone="green" />
         <StatCard label="Pending payments" value={stats.pending} icon={ClockIcon} tone="amber" />
-        <StatCard label={`Profit · ${periodLabel(period)}`} value={stats.profit} icon={TrendingUpIcon} tone={stats.profit < 0 ? 'rose' : 'green'} />
+        <StatCard label={`Profit · ${activeRangeLabel}`} value={stats.profit} icon={TrendingUpIcon} tone={stats.profit < 0 ? 'rose' : 'green'} />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
