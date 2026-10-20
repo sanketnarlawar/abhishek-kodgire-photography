@@ -15,6 +15,7 @@ import { TrashIcon } from '../components/icons'
 import {
   formatCurrency,
   formatDate,
+  formatTime,
   buildUpiUri,
   INVOICE_STATUSES,
   PAYMENT_MODES,
@@ -277,8 +278,11 @@ export default function InvoiceView() {
             </div>
             <div className="text-right">
               <p className="text-xl font-bold text-brand-600">INVOICE</p>
-              <p className="text-sm">{invoice.invoice_number}</p>
+              <p className="text-sm font-medium">{invoice.invoice_number}</p>
               <p className="text-xs text-gray-500">Date: {formatDate(invoice.issue_date)}</p>
+              {invoice.created_at && (
+                <p className="text-xs text-gray-500">Time: {formatTime(invoice.created_at)}</p>
+              )}
             </div>
           </div>
 
@@ -346,10 +350,12 @@ export default function InvoiceView() {
             )}
           </div>
 
-          {invoice.notes && (
+          {(profile?.terms || invoice.notes) && (
             <div className="mt-4 border-t border-gray-200 pt-3 text-sm dark:border-gray-700">
-              <p className="font-semibold">Notes</p>
-              <p className="text-gray-500">{invoice.notes}</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">Terms & Conditions</p>
+              <p className="mt-1 whitespace-pre-line text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                {profile?.terms || invoice.notes}
+              </p>
             </div>
           )}
         </div>

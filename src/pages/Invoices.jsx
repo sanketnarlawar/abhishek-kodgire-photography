@@ -11,7 +11,7 @@ import { useConfirm } from '../contexts/ConfirmContext'
 import { useSortPaginate } from '../lib/useSortPaginate'
 import { downloadCsv } from '../lib/csv'
 import { PlusIcon, InvoiceIcon, WalletIcon, TrashIcon, ArrowUpDownIcon, CalendarIcon } from '../components/icons'
-import { formatCurrency, formatDate, INVOICE_STATUSES } from '../lib/format'
+import { formatCurrency, formatDate, formatTime, INVOICE_STATUSES } from '../lib/format'
 
 const today = () => new Date().toISOString().slice(0, 10)
 const PAYMENT_MODES = ['Cash', 'Online / UPI', 'Cheque', 'Bank Transfer', 'Card']
@@ -30,8 +30,21 @@ const getValue = (inv, key) => {
       return (inv.client?.name || '').toLowerCase()
     case 'phone':
       return inv.client?.phone || ''
-    case 'issue_date':
-      return inv.issue_date || ''
+    case 'issue_date': {
+      const datePart = inv.issue_date || (inv.created_at ? inv.created_at.slice(0, 10) : '')
+      if (!datePart) return inv.created_at ? new Date(inv.created_at).getTime() : 0
+      if (inv.created_at) {
+        const d = new Date(inv.created_at)
+        if (!isNaN(d.getTime())) {
+          const hh = String(d.getHours()).padStart(2, '0')
+          const mm = String(d.getMinutes()).padStart(2, '0')
+          const ss = String(d.getSeconds()).padStart(2, '0')
+          const ms = String(d.getMilliseconds()).padStart(3, '0')
+          return `${datePart}T${hh}:${mm}:${ss}.${ms}`
+        }
+      }
+      return `${datePart}T00:00:00.000`
+    }
     case 'total':
       return Number(inv.total) || 0
     case 'paid_amount':
@@ -65,8 +78,8 @@ export default function Invoices() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
-  const [dateFilter, setDateFilter] = useState('all')
-  const [previousDateFilter, setPreviousDateFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState('today')
+  const [previousDateFilter, setPreviousDateFilter] = useState('today')
   const [appliedCustomRange, setAppliedCustomRange] = useState(() => {
     const todayDate = new Date()
     const y = todayDate.getFullYear()
@@ -105,8 +118,8 @@ export default function Invoices() {
     if (previousDateFilter && previousDateFilter !== 'custom') {
       setDateFilter(previousDateFilter)
     } else {
-      setDateFilter('all')
-      setPreviousDateFilter('all')
+      setDateFilter('today')
+      setPreviousDateFilter('today')
     }
   }
 
@@ -130,7 +143,8 @@ export default function Invoices() {
       supabase
         .from('invoices')
         .select('*, client:clients(name, phone)')
-        .order('issue_date', { ascending: false }),
+        .order('issue_date', { ascending: false })
+        .order('created_at', { ascending: false }),
       supabase.from('payments').select('invoice_id, amount'),
     ])
 
@@ -340,6 +354,7 @@ export default function Invoices() {
       Client: i.client?.name || '',
       Phone: i.client?.phone || '',
       Date: i.issue_date || '',
+      Time: formatTime(i.created_at) || '',
       Total: i.total || 0,
       Paid: i.paid_amount || 0,
       Balance: i.balance || 0,
@@ -472,11 +487,23 @@ export default function Invoices() {
               : 'Create your first invoice for a client.'
           }
           action={
-            !(search || statusFilter !== 'All' || dateFilter !== 'all') && (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {dateFilter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFilter('all')
+                    setPreviousDateFilter('all')
+                  }}
+                  className="btn-secondary"
+                >
+                  View All Time
+                </button>
+              )}
               <Link to="/invoices/new" className="btn-primary">
                 <PlusIcon /> New Invoice
               </Link>
-            )
+            </div>
           }
         />
       ) : (
@@ -487,7 +514,7 @@ export default function Invoices() {
                 <tr>
                   <SortableTh label="Client / Customer" sortKey="client" state={table} onSort={table.toggleSort} />
                   <SortableTh label="Phone No." sortKey="phone" state={table} onSort={table.toggleSort} />
-                  <SortableTh label="Date" sortKey="issue_date" state={table} onSort={table.toggleSort} />
+                  <SortableTh label="Date & Time" sortKey="issue_date" state={table} onSort={table.toggleSort} />
                   <SortableTh label="Total Amount" sortKey="total" state={table} onSort={table.toggleSort} className="text-right" />
                   <SortableTh label="Paid Amount" sortKey="paid_amount" state={table} onSort={table.toggleSort} className="text-right" />
                   <SortableTh label="Remaining Balance" sortKey="balance" state={table} onSort={table.toggleSort} className="text-right" />
@@ -507,7 +534,14 @@ export default function Invoices() {
                       {inv.client?.phone || '-'}
                     </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                      {formatDate(inv.issue_date)}
+                      <div className="font-medium text-gray-900 dark:text-gray-100">
+                        {formatDate(inv.issue_date)}
+                      </div>
+                      {inv.created_at && (
+                        <div className="text-xs text-gray-400 dark:text-gray-500">
+                          {formatTime(inv.created_at)}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-gray-100">
                       {formatCurrency(inv.total)}

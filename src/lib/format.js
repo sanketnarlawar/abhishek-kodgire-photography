@@ -49,6 +49,17 @@ export function formatDate(value) {
   })
 }
 
+export function formatTime(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+
 // Builds a UPI deep link / QR payload per the NPCI UPI spec.
 export function buildUpiUri({ upiId, payeeName, amount, note }) {
   if (!upiId) return ''

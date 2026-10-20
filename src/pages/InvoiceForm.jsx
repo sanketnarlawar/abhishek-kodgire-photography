@@ -20,8 +20,7 @@ const UNIT_OPTIONS = ['Photo', 'NONE', 'PCS', 'SET', 'HRS', 'DAY', 'BOX', 'PKT']
 const PAYMENT_TYPES = ['Cash', 'Online / UPI', 'Cheque', 'Bank Transfer', 'Card']
 const COPY_OPTIONS = ['Original', 'Duplicate', 'Triplicate']
 
-const DEFAULT_TERMS = `Terms and Conditions Apply
-50% advance payment and 25% after your work then 10% after video delivery 5% After the PDF of the album is ready`
+const DEFAULT_TERMS = ''
 
 const emptyRow = (unit = 'NONE') => ({
   description: '',
@@ -80,7 +79,7 @@ export default function InvoiceForm() {
     eway_bill_no: '',
     items: [emptyRow('Photo'), emptyRow('NONE'), emptyRow('NONE')],
     terms_title: 'Sale Invoice',
-    terms_and_conditions: DEFAULT_TERMS,
+    terms_and_conditions: profile?.terms || '',
     payment_type: 'Cash',
     no_of_copies: 'Original',
     description: '',
@@ -94,6 +93,17 @@ export default function InvoiceForm() {
   const baselineRef = useRef(null)
   const [dirty, setDirty] = useState(false)
   const releaseGuard = useUnsavedGuard(dirty)
+
+  useEffect(() => {
+    if (!isEdit && profile?.terms) {
+      setForm((prev) => {
+        if (!prev.terms_and_conditions) {
+          return { ...prev, terms_and_conditions: profile.terms }
+        }
+        return prev
+      })
+    }
+  }, [profile?.terms, isEdit])
 
   const handleBack = () => {
     if (window.history.state && window.history.state.idx > 0) {
@@ -136,7 +146,7 @@ export default function InvoiceForm() {
     const init = async () => {
       const [{ data: clientData }, { data: profile }] = await Promise.all([
         supabase.from('clients').select('*').order('name'),
-        supabase.from('business_profile').select('invoice_prefix').limit(1).maybeSingle(),
+        supabase.from('business_profile').select('invoice_prefix, terms').limit(1).maybeSingle(),
       ])
       const clientList = clientData || []
       setClients(clientList)
@@ -185,7 +195,7 @@ export default function InvoiceForm() {
             eway_bill_no: '',
             items: rows,
             terms_title: 'Sale Invoice',
-            terms_and_conditions: data.notes || DEFAULT_TERMS,
+            terms_and_conditions: data.notes || profile?.terms || '',
             payment_type: firstPay?.mode || 'Cash',
             no_of_copies: 'Original',
             description: firstPay?.note || '',
@@ -231,12 +241,13 @@ export default function InvoiceForm() {
           billing_address: clientObj?.address || '',
           items: rows,
           discount: q?.discount || '',
-          terms_and_conditions: q?.notes || DEFAULT_TERMS,
+          terms_and_conditions: q?.notes || profile?.terms || '',
         }))
         if (q?.client_id) loadClientBalance(q.client_id)
       } else {
         const number = await generateNumber(prefix)
-        setForm((f) => ({ ...f, invoice_number: number }))
+        const businessTerms = profile?.terms || ''
+        setForm((f) => ({ ...f, invoice_number: number, terms_and_conditions: businessTerms }))
       }
 
       // Load saved items library from database and past invoices

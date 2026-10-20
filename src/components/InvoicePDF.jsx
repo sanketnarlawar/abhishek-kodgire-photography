@@ -37,7 +37,10 @@ function amountInWords(n) {
 // ── Money formatter ───────────────────────────────────────────────────────
 const money = (n) => '₹ ' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day:'2-digit', month:'2-digit', year:'numeric' }).replace(/\//g,'-') : '-'
-const fmtTime = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+const fmtTime = (d) => {
+  const dateObj = d ? new Date(d) : new Date()
+  return dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+}
 
 // ── Styles ────────────────────────────────────────────────────────────────
 const S = StyleSheet.create({
@@ -126,7 +129,7 @@ export default function InvoicePDF({ profile = {}, invoice = {}, client = {}, qr
 
   // Find payment mode from most recent payment
   const lastPayment = payments.length > 0 ? payments[payments.length - 1] : null
-  const paymentMode = lastPayment?.mode || 'Cash'
+  const paymentMode = received > 0 ? (lastPayment?.mode || 'Paid') : 'Payment Pending'
 
   return (
     <Document>
@@ -174,7 +177,7 @@ export default function InvoicePDF({ profile = {}, invoice = {}, client = {}, qr
             </View>
             <View style={S.invRow}>
               <Text style={S.invKey}>Time : </Text>
-              <Text style={S.invVal}>{fmtTime()}</Text>
+              <Text style={S.invVal}>{fmtTime(invoice.created_at)}</Text>
             </View>
             {invoice.event_type ? (
               <View style={S.invRow}>
@@ -231,16 +234,16 @@ export default function InvoicePDF({ profile = {}, invoice = {}, client = {}, qr
 
           {/* Left */}
           <View style={S.bottomLeft}>
-            <Text style={S.descLabel}>Description</Text>
+            <Text style={S.descLabel}>{received > 0 ? 'Payment Mode' : 'Payment Status'}</Text>
             <Text style={S.descVal}>{paymentMode}</Text>
 
             <Text style={S.wordsLabel}>Invoice Amount In Words</Text>
             <Text style={S.wordsVal}>{amountInWords(total)}</Text>
 
-            {profile.terms ? (
+            {profile.terms || invoice.notes ? (
               <>
                 <Text style={S.termsLabel}>Terms and Conditions</Text>
-                <Text style={S.termsVal}>{profile.terms}</Text>
+                <Text style={S.termsVal}>{profile.terms || invoice.notes}</Text>
               </>
             ) : null}
 
