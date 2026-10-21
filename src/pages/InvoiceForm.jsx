@@ -11,6 +11,7 @@ import { TrashIcon, PlusIcon, SettingsIcon, WhatsAppIcon, ArrowLeftIcon } from '
 import ItemCombobox from '../components/ItemCombobox'
 import { loadItemsLibrary, saveItemsToLibrary } from '../lib/itemService'
 import { useProfile } from '../contexts/ProfileContext'
+import { buildInvoiceWhatsAppUrl } from '../lib/whatsapp'
 
 const today = () => new Date().toISOString().slice(0, 10)
 const currentTime = () =>
@@ -54,7 +55,7 @@ export default function InvoiceForm() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [autoSendWhatsApp, setAutoSendWhatsApp] = useState(false)
+  const [autoSendWhatsApp, setAutoSendWhatsApp] = useState(!isEdit)
   const [clientModalOpen, setClientModalOpen] = useState(false)
   const [clients, setClients] = useState([])
   const [clientBalance, setClientBalance] = useState(0)
@@ -530,11 +531,6 @@ export default function InvoiceForm() {
   const handleSave = async (e) => {
     if (e) e.preventDefault()
 
-    if (autoSendWhatsApp && !form.phone?.trim()) {
-      notify('Please enter the customer phone number or uncheck Send PDF on WhatsApp.', 'error')
-      return
-    }
-
     // Use billing_name if set, otherwise fall back to phone (user typed only a phone number)
     const customerName = (form.billing_name || '').trim()
     const phoneAsName = (form.phone || '').trim()
@@ -578,6 +574,9 @@ export default function InvoiceForm() {
         return
       }
     }
+
+    // Must open synchronously in the click: browsers block tabs opened after an await.
+    const waWindow = autoSendWhatsApp && form.phone?.trim() ? window.open('', '_blank') : null
 
     setSaving(true)
     try {
@@ -713,8 +712,26 @@ export default function InvoiceForm() {
 
       notify(isEdit ? 'Invoice updated successfully!' : 'Sale invoice created successfully!')
 
-      navigate(`/invoices/${savedId}`, { state: { sendWhatsApp: autoSendWhatsApp } })
+      if (waWindow) {
+        const waUrl = buildInvoiceWhatsAppUrl({
+          phone: form.phone,
+          clientName: customerName,
+          studioName: profile?.studio_name,
+          upiId: profile?.upi_id,
+          invoiceNumber: form.invoice_number,
+          issueDate: form.invoice_date,
+          items: activeItems,
+          discount: overallDiscount,
+          total: finalTotal,
+          paid: receivedAmount,
+        })
+        if (waUrl) waWindow.location.href = waUrl
+        else waWindow.close()
+      }
+
+      navigate(`/invoices/${savedId}`)
     } catch (err) {
+      waWindow?.close()
       notify(err.message || 'Error saving invoice', 'error')
     } finally {
       setSaving(false)
@@ -1294,8 +1311,8 @@ export default function InvoiceForm() {
               }`}
               title={
                 form.phone?.trim()
-                  ? `After saving, you can send the invoice PDF to ${form.phone} from your WhatsApp`
-                  : 'Enter a customer phone number above to send WhatsApp PDF'
+                  ? `After saving, a WhatsApp chat with ${form.phone} opens with the invoice message ready to send`
+                  : 'Enter a customer phone number above to send the invoice on WhatsApp'
               }
             >
               <input
@@ -1306,7 +1323,7 @@ export default function InvoiceForm() {
               />
               <WhatsAppIcon width={16} height={16} className={autoSendWhatsApp && form.phone?.trim() ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'} />
               <span>
-                Send PDF on WhatsApp
+                Send message on WhatsApp
                 {form.phone?.trim() ? (
                   <span className="font-mono text-[11px] font-bold ml-1 text-emerald-700 dark:text-emerald-300">
                     ({form.phone.trim()})

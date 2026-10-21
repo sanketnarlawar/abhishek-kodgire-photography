@@ -12,6 +12,7 @@ import { PageLoader } from '../components/Loaders'
 import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import { TrashIcon } from '../components/icons'
+import { buildInvoiceWhatsAppUrl } from '../lib/whatsapp'
 import {
   formatCurrency,
   formatDate,
@@ -221,6 +222,27 @@ export default function InvoiceView() {
     }
   }
 
+  // wa.me opens a chat with any number, saved in contacts or not.
+  const sendWhatsAppText = () => {
+    const url = buildInvoiceWhatsAppUrl({
+      phone: invoice.phone || client?.phone,
+      clientName: client?.name,
+      studioName: profile?.studio_name,
+      upiId: profile?.upi_id,
+      invoiceNumber: invoice.invoice_number,
+      issueDate: invoice.issue_date,
+      items: invoice.items,
+      discount: invoice.discount,
+      total: invoice.total,
+      paid,
+    })
+    if (!url) {
+      notify('Add a valid customer phone number first.', 'error')
+      return
+    }
+    window.open(url, '_blank', 'noopener')
+  }
+
   if (loading) return <PageLoader />
   if (!invoice) return <div className="card text-center text-gray-500">Invoice not found.</div>
 
@@ -240,6 +262,9 @@ export default function InvoiceView() {
             </button>
             <button onClick={shareWhatsApp} disabled={downloading || !pdfBlob} className="btn-secondary">
               {pdfBlob ? 'Send on WhatsApp' : 'Preparing PDF…'}
+            </button>
+            <button onClick={sendWhatsAppText} className="btn-secondary">
+              WhatsApp Message
             </button>
             <button onClick={deleteInvoice} className="btn-danger">
               Delete
