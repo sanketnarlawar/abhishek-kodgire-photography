@@ -103,6 +103,12 @@ create table if not exists public.expenses (
   owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   expense_date date default now(),
   category text,
+  name text,
+  phone text,
+  address text,
+  items jsonb default '[]'::jsonb,
+  transportation numeric default 0,
+  other_charges numeric default 0,
   description text,
   amount numeric not null default 0,
   created_at timestamptz default now()
