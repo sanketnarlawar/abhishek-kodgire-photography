@@ -17,7 +17,6 @@ const today = () => new Date().toISOString().slice(0, 10)
 const currentTime = () =>
   new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
 
-const UNIT_OPTIONS = ['Photo', 'NONE', 'PCS', 'SET', 'HRS', 'DAY', 'BOX', 'PKT']
 const PAYMENT_TYPES = ['Cash', 'Online / UPI', 'Cheque', 'Bank Transfer', 'Card']
 const COPY_OPTIONS = ['Original', 'Duplicate', 'Triplicate']
 
@@ -713,17 +712,28 @@ export default function InvoiceForm() {
       notify(isEdit ? 'Invoice updated successfully!' : 'Sale invoice created successfully!')
 
       if (waWindow) {
+        const savedClient = clients.find((c) => c.id === finalClientId)
         const waUrl = buildInvoiceWhatsAppUrl({
           phone: form.phone,
-          clientName: customerName,
-          studioName: profile?.studio_name,
-          upiId: profile?.upi_id,
-          invoiceNumber: form.invoice_number,
-          issueDate: form.invoice_date,
-          items: activeItems,
-          discount: overallDiscount,
-          total: finalTotal,
+          profile,
+          client: {
+            name: customerName || savedClient?.name,
+            phone: form.phone?.trim(),
+            email: savedClient?.email,
+            address: form.billing_address?.trim() || savedClient?.address,
+          },
+          invoice: {
+            invoice_number: form.invoice_number,
+            issue_date: form.invoice_date,
+            created_at: isEdit ? null : new Date().toISOString(),
+            items: activeItems,
+            subtotal,
+            discount: overallDiscount,
+            total: finalTotal,
+            notes: form.terms_and_conditions,
+          },
           paid: receivedAmount,
+          paymentMode: form.payment_type,
         })
         if (waUrl) waWindow.location.href = waUrl
         else waWindow.close()
@@ -895,8 +905,7 @@ export default function InvoiceForm() {
                 <th className="min-w-[220px] border-r border-gray-300 px-3 py-2.5 font-bold dark:border-gray-600">ITEM</th>
                 <th className="w-20 border-r border-gray-300 px-2 py-2.5 text-center font-bold dark:border-gray-600">QTY</th>
                 <th className="w-20 border-r border-gray-300 px-2 py-2.5 text-center font-bold dark:border-gray-600">FREE QTY</th>
-                <th className="w-28 border-r border-gray-300 px-2 py-2.5 font-bold dark:border-gray-600">UNIT</th>
-                <th className="w-28 border-r border-gray-300 px-2 py-2.5 text-right font-bold dark:border-gray-600">PRICE/UNIT</th>
+                <th className="w-28 border-r border-gray-300 px-2 py-2.5 text-right font-bold dark:border-gray-600">PRICE</th>
                 <th className="w-40 border-r border-gray-300 px-2 py-2.5 text-center font-bold dark:border-gray-600">
                   <div className="border-b border-gray-300 pb-1 dark:border-gray-600">DISCOUNT</div>
                   <div className="grid grid-cols-2 pt-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
@@ -951,22 +960,7 @@ export default function InvoiceForm() {
                     />
                   </td>
 
-                  {/* UNIT */}
-                  <td className="border-r border-gray-200 px-1.5 py-1.5 dark:border-gray-700">
-                    <select
-                      value={row.unit}
-                      onChange={(e) => updateRow(idx, 'unit', e.target.value)}
-                      className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm font-medium text-gray-800 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                    >
-                      {UNIT_OPTIONS.map((u) => (
-                        <option key={u} value={u}>
-                          {u}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-
-                  {/* PRICE/UNIT */}
+                  {/* PRICE */}
                   <td className="border-r border-gray-200 px-1.5 py-1.5 text-right dark:border-gray-700">
                     <input
                       type="text"
@@ -1039,7 +1033,6 @@ export default function InvoiceForm() {
                 <td className="border-r border-gray-300 px-2 py-2.5 text-center dark:border-gray-600">
                   {totalFreeQty || 0}
                 </td>
-                <td className="border-r border-gray-300 px-2 py-2.5 dark:border-gray-600" />
                 <td className="border-r border-gray-300 px-2 py-2.5 dark:border-gray-600" />
                 <td className="border-r border-gray-300 px-2 py-2.5 dark:border-gray-600" />
                 <td className="border-r border-gray-300 px-3 py-2.5 text-right text-sm font-extrabold text-brand-600 dark:border-gray-600 dark:text-brand-400">

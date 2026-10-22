@@ -1,4 +1,5 @@
 import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer'
+import { amountInWords } from '../lib/format'
 
 // ── Brand orange used throughout the invoice ──────────────────────────────
 const ORANGE = '#f97316'
@@ -8,31 +9,7 @@ const LIGHT_GRAY = '#f3f4f6'
 const BORDER = '#e5e7eb'
 
 // ── Utility: convert number to Indian words ───────────────────────────────
-const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine',
-  'Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen']
-const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety']
-
-function toWords(n) {
-  n = Math.round(Number(n) || 0)
-  if (n === 0) return 'Zero'
-  if (n < 0) return 'Minus ' + toWords(-n)
-  let w = ''
-  if (n >= 10000000) { w += toWords(Math.floor(n / 10000000)) + ' Crore '; n %= 10000000 }
-  if (n >= 100000)   { w += toWords(Math.floor(n / 100000)) + ' Lakh '; n %= 100000 }
-  if (n >= 1000)     { w += toWords(Math.floor(n / 1000)) + ' Thousand '; n %= 1000 }
-  if (n >= 100)      { w += toWords(Math.floor(n / 100)) + ' Hundred '; n %= 100 }
-  if (n >= 20)       { w += tens[Math.floor(n / 10)] + ' '; n %= 10 }
-  if (n > 0)         { w += ones[n] + ' ' }
-  return w.trim()
-}
-
-function amountInWords(n) {
-  const rupees = Math.floor(n)
-  const paise = Math.round((n - rupees) * 100)
-  let w = toWords(rupees) + ' Rupees'
-  if (paise > 0) w += ' and ' + toWords(paise) + ' Paise'
-  return w + ' only'
-}
+// (shared helper lives in lib/format.js)
 
 // ── Money formatter ───────────────────────────────────────────────────────
 const money = (n) => '₹ ' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -77,7 +54,6 @@ const S = StyleSheet.create({
   cNum: { width: 20 },
   cItem: { flex: 4 },
   cQty: { flex: 1.2, textAlign: 'center' },
-  cUnit: { flex: 1.2, textAlign: 'center' },
   cRate: { flex: 1.5, textAlign: 'right' },
   cAmt: { flex: 1.5, textAlign: 'right' },
 
@@ -154,7 +130,7 @@ export default function InvoicePDF({ profile = {}, invoice = {}, client = {}, qr
         <View style={S.divider} />
 
         {/* ── Title ──────────────────────────────────────────────── */}
-        <Text style={S.title}>Tax Invoice</Text>
+        <Text style={S.title}>Invoice</Text>
 
         {/* ── Bill To + Invoice Details ───────────────────────────── */}
         <View style={S.billRow}>
@@ -201,8 +177,7 @@ export default function InvoicePDF({ profile = {}, invoice = {}, client = {}, qr
             <Text style={[S.thText, S.cNum]}>#</Text>
             <Text style={[S.thText, S.cItem]}>Item name</Text>
             <Text style={[S.thText, S.cQty]}>Quantity</Text>
-            <Text style={[S.thText, S.cUnit]}>Unit</Text>
-            <Text style={[S.thText, S.cRate]}>Price/ Unit</Text>
+            <Text style={[S.thText, S.cRate]}>Price</Text>
             <Text style={[S.thText, S.cAmt]}>Amount</Text>
           </View>
 
@@ -212,7 +187,6 @@ export default function InvoicePDF({ profile = {}, invoice = {}, client = {}, qr
               <Text style={S.cNum}>{i + 1}</Text>
               <Text style={[S.cItem, { fontFamily: 'Helvetica-Bold', fontSize: 8 }]}>{it.description || '-'}</Text>
               <Text style={S.cQty}>{it.quantity || '-'}</Text>
-              <Text style={S.cUnit}>{it.unit || '-'}</Text>
               <Text style={S.cRate}>{money(it.rate)}</Text>
               <Text style={S.cAmt}>{money((Number(it.quantity) || 0) * (Number(it.rate) || 0))}</Text>
             </View>
@@ -223,7 +197,6 @@ export default function InvoicePDF({ profile = {}, invoice = {}, client = {}, qr
             <Text style={[S.trTotalText, S.cNum]} />
             <Text style={[S.trTotalText, S.cItem]}>Total</Text>
             <Text style={[S.trTotalText, S.cQty]}>{totalQty}</Text>
-            <Text style={[S.trTotalText, S.cUnit]} />
             <Text style={[S.trTotalText, S.cRate]} />
             <Text style={[S.trTotalText, S.cAmt]}>{money(total)}</Text>
           </View>

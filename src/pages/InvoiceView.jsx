@@ -226,15 +226,11 @@ export default function InvoiceView() {
   const sendWhatsAppText = () => {
     const url = buildInvoiceWhatsAppUrl({
       phone: invoice.phone || client?.phone,
-      clientName: client?.name,
-      studioName: profile?.studio_name,
-      upiId: profile?.upi_id,
-      invoiceNumber: invoice.invoice_number,
-      issueDate: invoice.issue_date,
-      items: invoice.items,
-      discount: invoice.discount,
-      total: invoice.total,
+      profile,
+      client: { ...client, phone: invoice.phone || client?.phone },
+      invoice,
       paid,
+      paymentMode: payments[payments.length - 1]?.mode,
     })
     if (!url) {
       notify('Add a valid customer phone number first.', 'error')
