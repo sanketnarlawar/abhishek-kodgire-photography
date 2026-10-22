@@ -13,6 +13,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/Loaders'
 import CountUp from '../components/CountUp'
+import DateField from '../components/DateField'
 import StatusBadge from '../components/StatusBadge'
 import { useTheme } from '../contexts/ThemeContext'
 import { useProfile } from '../contexts/ProfileContext'
@@ -22,6 +23,57 @@ import { InvoiceIcon, WalletIcon, ClockIcon, TrendingUpIcon, CalendarIcon } from
 
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+const formatLocalYMD = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
+
+const QUICK_FILTERS = [
+  { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'this_week', label: 'This week' },
+  { key: 'this_month', label: 'This month' },
+  { key: 'this_year', label: 'This year' },
+  { key: 'all', label: 'All time' },
+]
+
+// Inclusive { start, end } (YYYY-MM-DD) for relative filters; null for all / custom / day / month keys.
+function getPresetRange(type) {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const y = today.getFullYear()
+  const m = today.getMonth()
+  let start
+  let end = today
+
+  switch (type) {
+    case 'today':
+      start = today
+      break
+    case 'yesterday':
+      start = end = addDays(today, -1)
+      break
+    case 'this_week': {
+      // Monday to Sunday
+      const diffToMonday = today.getDay() === 0 ? -6 : 1 - today.getDay()
+      start = addDays(today, diffToMonday)
+      end = addDays(start, 6)
+      break
+    }
+    case 'this_month':
+      start = new Date(y, m, 1)
+      end = new Date(y, m + 1, 0)
+      break
+    case 'this_year':
+      start = new Date(y, 0, 1)
+      end = new Date(y, 11, 31)
+      break
+    default:
+      return null
+  }
+  return { start: formatLocalYMD(start), end: formatLocalYMD(end) }
+}
 
 const TONES = {
   indigo: {
@@ -73,32 +125,36 @@ export default function Dashboard() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [filterType, setFilterType] = useState('today')
   const [previousFilterType, setPreviousFilterType] = useState('today')
+  const [selectedDay, setSelectedDay] = useState('')
   const [appliedCustomRange, setAppliedCustomRange] = useState(() => {
-    const today = new Date()
-    const y = today.getFullYear()
-    const m = String(today.getMonth() + 1).padStart(2, '0')
-    const d = String(today.getDate()).padStart(2, '0')
-    return {
-      start: `${y}-${m}-01`,
-      end: `${y}-${m}-${d}`,
-    }
+    const todayStr = formatLocalYMD(new Date())
+    return { start: todayStr, end: todayStr }
   })
-  const [draftCustomRange, setDraftCustomRange] = useState(() => ({
-    start: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`,
-    end: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`,
-  }))
+  const [draftCustomRange, setDraftCustomRange] = useState(() => {
+    const todayStr = formatLocalYMD(new Date())
+    return { start: todayStr, end: todayStr }
+  })
 
   const handleDropdownChange = (newVal) => {
     if (newVal === 'custom') {
       if (filterType !== 'custom') {
         setPreviousFilterType(filterType)
+        const todayStr = formatLocalYMD(new Date())
+        const todayRange = { start: todayStr, end: todayStr }
+        setAppliedCustomRange(todayRange)
+        setDraftCustomRange(todayRange)
       }
-      setDraftCustomRange({ ...appliedCustomRange })
       setFilterType('custom')
     } else {
       setFilterType(newVal)
       setPreviousFilterType(newVal)
     }
+  }
+
+  const handlePickDay = (value) => {
+    if (!value) return
+    setSelectedDay(value)
+    handleDropdownChange('day')
   }
 
   const handleApplyCustom = () => {
@@ -131,13 +187,6 @@ export default function Dashboard() {
     load()
   }, [])
 
-  const formatLocalYMD = (d) => {
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${day}`
-  }
-
   // Months that have any activity, newest first
   const availablePeriods = useMemo(() => {
     const keys = new Set()
@@ -162,6 +211,10 @@ export default function Dashboard() {
     switch (filterType) {
       case 'today':
         return 'Today'
+      case 'yesterday':
+        return 'Yesterday'
+      case 'day':
+        return formatDate(selectedDay)
       case 'this_week':
         return 'This Week'
       case 'this_month':
@@ -180,52 +233,35 @@ export default function Dashboard() {
       default:
         return periodLabel(filterType)
     }
-  }, [filterType, appliedCustomRange])
+  }, [filterType, appliedCustomRange, selectedDay])
+
+  // Concrete dates behind a relative preset, shown next to the label.
+  const presetRangeText = useMemo(() => {
+    const r = getPresetRange(filterType)
+    if (!r || filterType === 'all' || r.start === r.end) return ''
+    return `${formatDate(r.start)} – ${formatDate(r.end)}`
+  }, [filterType])
 
   const isDateInFilter = useMemo(() => {
-    const today = new Date()
-    const todayStr = formatLocalYMD(today)
-
-    // Current week: Monday to Sunday
-    const day = today.getDay()
-    const diffToMonday = day === 0 ? -6 : 1 - day
-    const monday = new Date(today)
-    monday.setDate(today.getDate() + diffToMonday)
-    const sunday = new Date(monday)
-    sunday.setDate(monday.getDate() + 6)
-    const weekStart = formatLocalYMD(monday)
-    const weekEnd = formatLocalYMD(sunday)
-
-    // Current month
-    const y = today.getFullYear()
-    const m = today.getMonth()
-    const monthStart = `${y}-${String(m + 1).padStart(2, '0')}-01`
-    const lastDayOfMonth = new Date(y, m + 1, 0).getDate()
-    const monthEnd = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`
-
-    // Current year
-    const yearStart = `${y}-01-01`
-    const yearEnd = `${y}-12-31`
+    let range = getPresetRange(filterType)
+    if (filterType === 'custom') range = appliedCustomRange
+    if (filterType === 'day') range = { start: selectedDay, end: selectedDay }
 
     return (dateStr) => {
       if (!dateStr) return false
       const d = dateStr.slice(0, 10)
 
       if (filterType === 'all') return true
-      if (filterType === 'today') return d === todayStr
-      if (filterType === 'this_week') return d >= weekStart && d <= weekEnd
-      if (filterType === 'this_month') return d >= monthStart && d <= monthEnd
-      if (filterType === 'this_year') return d >= yearStart && d <= yearEnd
-      if (filterType === 'custom') {
-        const { start, end } = appliedCustomRange
+      if (range) {
+        const { start, end } = range
         if (start && d < start) return false
         if (end && d > end) return false
         return true
       }
-      // If a specific YYYY-MM is selected
+      // A specific YYYY-MM is selected
       return dateStr.slice(0, 7) === filterType
     }
-  }, [filterType, appliedCustomRange])
+  }, [filterType, appliedCustomRange, selectedDay])
 
   const stats = useMemo(() => {
     const periodInvoices = invoices.filter((i) => isDateInFilter(i.issue_date))
@@ -318,37 +354,79 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-4 space-y-3">
         <div>
           <h2 className="text-lg font-semibold">Summary</h2>
           <p className="text-xs text-gray-500 dark:text-gray-400">
             Overview of financial metrics for <span className="font-semibold text-brand-600 dark:text-brand-400">{activeRangeLabel}</span>
+            {presetRangeText && <span> · {presetRangeText}</span>}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <select
-            className="input max-w-[200px]"
-            value={filterType}
-            onChange={(e) => handleDropdownChange(e.target.value)}
-          >
-            <option value="today">Today</option>
-            <option value="this_week">This Week</option>
-            <option value="this_month">This Month</option>
-            <option value="this_year">This Year</option>
-            <option value="all">All time</option>
-            <option value="custom">Custom Range</option>
-            {availablePeriods.length > 0 && (
-              <optgroup label="Monthly Archives">
-                {availablePeriods.map((k) => (
-                  <option key={k} value={k}>
-                    {periodLabel(k)}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
+        <div className="flex flex-wrap items-center gap-2">
+          {QUICK_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => handleDropdownChange(f.key)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition active:scale-95 ${
+                filterType === f.key
+                  ? 'border-brand-600 bg-brand-600 text-white shadow-sm'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-brand-300 hover:text-brand-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-brand-500'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
 
+          <label
+            className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+              filterType === 'day'
+                ? 'border-brand-600 bg-brand-600 text-white shadow-sm'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-brand-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-brand-500'
+            }`}
+          >
+            <CalendarIcon width={14} height={14} />
+            <span>Pick a date</span>
+            <DateField
+              value={filterType === 'day' ? selectedDay : ''}
+              onChange={handlePickDay}
+              ariaLabel="Pick a single date"
+              className="!py-0.5"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={() => handleDropdownChange('custom')}
+            className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition active:scale-95 ${
+              filterType === 'custom'
+                ? 'border-brand-600 bg-brand-600 text-white shadow-sm'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-brand-300 hover:text-brand-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-brand-500'
+            }`}
+          >
+            <CalendarIcon width={14} height={14} />
+            Custom range
+          </button>
+
+          {availablePeriods.length > 0 && (
+            <select
+              aria-label="Pick a month"
+              className="input max-w-[150px] !rounded-full !py-1.5 !text-xs"
+              value={availablePeriods.includes(filterType) ? filterType : ''}
+              onChange={(e) => e.target.value && handleDropdownChange(e.target.value)}
+            >
+              <option value="">Pick a month…</option>
+              {availablePeriods.map((k) => (
+                <option key={k} value={k}>
+                  {periodLabel(k)}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5 empty:hidden">
           {filterType === 'custom' && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-1.5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <span className="flex items-center text-gray-400">
@@ -356,21 +434,19 @@ export default function Dashboard() {
               </span>
               <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
                 <span className="font-semibold text-gray-500 dark:text-gray-400">From</span>
-                <input
-                  type="date"
-                  className="rounded-lg border border-gray-300 bg-gray-50 px-2 py-1 text-xs text-gray-800 transition focus:border-brand-500 focus:bg-white focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                <DateField
+                  ariaLabel="From date"
                   value={draftCustomRange.start}
-                  onChange={(e) => setDraftCustomRange((r) => ({ ...r, start: e.target.value }))}
+                  onChange={(v) => setDraftCustomRange((r) => ({ ...r, start: v }))}
                 />
               </label>
               <span className="text-xs font-medium text-gray-400">to</span>
               <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
                 <span className="font-semibold text-gray-500 dark:text-gray-400">To</span>
-                <input
-                  type="date"
-                  className="rounded-lg border border-gray-300 bg-gray-50 px-2 py-1 text-xs text-gray-800 transition focus:border-brand-500 focus:bg-white focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                <DateField
+                  ariaLabel="To date"
                   value={draftCustomRange.end}
-                  onChange={(e) => setDraftCustomRange((r) => ({ ...r, end: e.target.value }))}
+                  onChange={(v) => setDraftCustomRange((r) => ({ ...r, end: v }))}
                 />
               </label>
 

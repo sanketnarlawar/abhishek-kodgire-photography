@@ -5,6 +5,7 @@ import PageHeader from '../components/PageHeader'
 import EmptyState from '../components/EmptyState'
 import StatusBadge from '../components/StatusBadge'
 import Modal from '../components/Modal'
+import DateField from '../components/DateField'
 import { TableSkeleton } from '../components/Loaders'
 import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
@@ -80,32 +81,36 @@ export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState('All')
   const [dateFilter, setDateFilter] = useState('today')
   const [previousDateFilter, setPreviousDateFilter] = useState('today')
+  const [selectedDay, setSelectedDay] = useState('')
   const [appliedCustomRange, setAppliedCustomRange] = useState(() => {
-    const todayDate = new Date()
-    const y = todayDate.getFullYear()
-    const m = String(todayDate.getMonth() + 1).padStart(2, '0')
-    const d = String(todayDate.getDate()).padStart(2, '0')
-    return {
-      start: `${y}-${m}-01`,
-      end: `${y}-${m}-${d}`,
-    }
+    const todayStr = formatLocalYMD(new Date())
+    return { start: todayStr, end: todayStr }
   })
-  const [draftCustomRange, setDraftCustomRange] = useState(() => ({
-    start: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`,
-    end: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`,
-  }))
+  const [draftCustomRange, setDraftCustomRange] = useState(() => {
+    const todayStr = formatLocalYMD(new Date())
+    return { start: todayStr, end: todayStr }
+  })
 
   const handleDropdownChange = (newVal) => {
     if (newVal === 'custom') {
       if (dateFilter !== 'custom') {
         setPreviousDateFilter(dateFilter)
+        const todayStr = formatLocalYMD(new Date())
+        const todayRange = { start: todayStr, end: todayStr }
+        setAppliedCustomRange(todayRange)
+        setDraftCustomRange(todayRange)
       }
-      setDraftCustomRange({ ...appliedCustomRange })
       setDateFilter('custom')
     } else {
       setDateFilter(newVal)
       setPreviousDateFilter(newVal)
     }
+  }
+
+  const handlePickDay = (value) => {
+    if (!value) return
+    setSelectedDay(value)
+    handleDropdownChange('day')
   }
 
   const handleApplyCustom = () => {
@@ -172,12 +177,6 @@ export default function Invoices() {
     load()
   }, [])
 
-  const availablePeriods = useMemo(() => {
-    const keys = new Set()
-    invoices.forEach((i) => i.issue_date && keys.add(i.issue_date.slice(0, 7)))
-    return [...keys].sort().reverse()
-  }, [invoices])
-
   const periodLabel = (key) => {
     if (key === 'all') return 'All time'
     if (!key.includes('-')) return key
@@ -193,6 +192,8 @@ export default function Invoices() {
     switch (dateFilter) {
       case 'today':
         return 'Today'
+      case 'day':
+        return formatDate(selectedDay)
       case 'this_week':
         return 'This Week'
       case 'this_month':
@@ -244,6 +245,7 @@ export default function Invoices() {
 
       if (dateFilter === 'all') return true
       if (dateFilter === 'today') return d === todayStr
+      if (dateFilter === 'day') return d === selectedDay
       if (dateFilter === 'this_week') return d >= weekStart && d <= weekEnd
       if (dateFilter === 'this_month') return d >= monthStart && d <= monthEnd
       if (dateFilter === 'this_year') return d >= yearStart && d <= yearEnd
@@ -256,7 +258,7 @@ export default function Invoices() {
       // If a specific YYYY-MM is selected
       return dateStr.slice(0, 7) === dateFilter
     }
-  }, [dateFilter, appliedCustomRange])
+  }, [dateFilter, appliedCustomRange, selectedDay])
 
   const filtered = useMemo(
     () =>
@@ -418,17 +420,23 @@ export default function Invoices() {
             <option value="this_year">This Year</option>
             <option value="all">All time</option>
             <option value="custom">Custom Range</option>
-            {availablePeriods.length > 0 && (
-              <optgroup label="Monthly Archives">
-                {availablePeriods.map((k) => (
-                  <option key={k} value={k}>
-                    {periodLabel(k)}
-                  </option>
-                ))}
-              </optgroup>
+            {dateFilter === 'day' && (
+              <option value="day" hidden>
+                Single date
+              </option>
             )}
           </select>
         </div>
+
+        <DateField
+          value={dateFilter === 'day' ? selectedDay : ''}
+          onChange={handlePickDay}
+          ariaLabel="Show invoices of a particular date"
+          placeholder="Pick a date"
+          className={`!rounded-lg !px-3 !py-2 text-sm ${
+            dateFilter === 'day' ? '!border-brand-500 ring-1 ring-brand-500' : ''
+          }`}
+        />
 
         {dateFilter === 'custom' && (
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-1.5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
@@ -437,21 +445,19 @@ export default function Invoices() {
             </span>
             <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
               <span className="font-semibold text-gray-500 dark:text-gray-400">From</span>
-              <input
-                type="date"
-                className="rounded-lg border border-gray-300 bg-gray-50 px-2 py-1 text-xs text-gray-800 transition focus:border-brand-500 focus:bg-white focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+              <DateField
+                ariaLabel="From date"
                 value={draftCustomRange.start}
-                onChange={(e) => setDraftCustomRange((r) => ({ ...r, start: e.target.value }))}
+                onChange={(v) => setDraftCustomRange((r) => ({ ...r, start: v }))}
               />
             </label>
             <span className="text-xs font-medium text-gray-400">to</span>
             <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
               <span className="font-semibold text-gray-500 dark:text-gray-400">To</span>
-              <input
-                type="date"
-                className="rounded-lg border border-gray-300 bg-gray-50 px-2 py-1 text-xs text-gray-800 transition focus:border-brand-500 focus:bg-white focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+              <DateField
+                ariaLabel="To date"
                 value={draftCustomRange.end}
-                onChange={(e) => setDraftCustomRange((r) => ({ ...r, end: e.target.value }))}
+                onChange={(v) => setDraftCustomRange((r) => ({ ...r, end: v }))}
               />
             </label>
 

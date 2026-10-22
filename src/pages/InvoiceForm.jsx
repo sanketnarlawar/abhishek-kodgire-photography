@@ -11,12 +11,12 @@ import { TrashIcon, PlusIcon, SettingsIcon, WhatsAppIcon, ArrowLeftIcon } from '
 import ItemCombobox from '../components/ItemCombobox'
 import { loadItemsLibrary, saveItemsToLibrary } from '../lib/itemService'
 import { useProfile } from '../contexts/ProfileContext'
+import { buildInvoiceWhatsAppUrl } from '../lib/whatsapp'
 
 const today = () => new Date().toISOString().slice(0, 10)
 const currentTime = () =>
   new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
 
-const UNIT_OPTIONS = ['Photo', 'NONE', 'PCS', 'SET', 'HRS', 'DAY', 'BOX', 'PKT']
 const PAYMENT_TYPES = ['Cash', 'Online / UPI', 'Cheque', 'Bank Transfer', 'Card']
 const COPY_OPTIONS = ['Original', 'Duplicate', 'Triplicate']
 
@@ -54,7 +54,7 @@ export default function InvoiceForm() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [autoSendWhatsApp, setAutoSendWhatsApp] = useState(false)
+  const [autoSendWhatsApp, setAutoSendWhatsApp] = useState(!isEdit)
   const [clientModalOpen, setClientModalOpen] = useState(false)
   const [clients, setClients] = useState([])
   const [clientBalance, setClientBalance] = useState(0)
@@ -530,11 +530,6 @@ export default function InvoiceForm() {
   const handleSave = async (e) => {
     if (e) e.preventDefault()
 
-    if (autoSendWhatsApp && !form.phone?.trim()) {
-      notify('Please enter the customer phone number or uncheck Send PDF on WhatsApp.', 'error')
-      return
-    }
-
     // Use billing_name if set, otherwise fall back to phone (user typed only a phone number)
     const customerName = (form.billing_name || '').trim()
     const phoneAsName = (form.phone || '').trim()
@@ -578,6 +573,9 @@ export default function InvoiceForm() {
         return
       }
     }
+
+    // Must open synchronously in the click: browsers block tabs opened after an await.
+    const waWindow = autoSendWhatsApp && form.phone?.trim() ? window.open('', '_blank') : null
 
     setSaving(true)
     try {
@@ -713,8 +711,37 @@ export default function InvoiceForm() {
 
       notify(isEdit ? 'Invoice updated successfully!' : 'Sale invoice created successfully!')
 
-      navigate(`/invoices/${savedId}`, { state: { sendWhatsApp: autoSendWhatsApp } })
+      if (waWindow) {
+        const savedClient = clients.find((c) => c.id === finalClientId)
+        const waUrl = buildInvoiceWhatsAppUrl({
+          phone: form.phone,
+          profile,
+          client: {
+            name: customerName || savedClient?.name,
+            phone: form.phone?.trim(),
+            email: savedClient?.email,
+            address: form.billing_address?.trim() || savedClient?.address,
+          },
+          invoice: {
+            invoice_number: form.invoice_number,
+            issue_date: form.invoice_date,
+            created_at: isEdit ? null : new Date().toISOString(),
+            items: activeItems,
+            subtotal,
+            discount: overallDiscount,
+            total: finalTotal,
+            notes: form.terms_and_conditions,
+          },
+          paid: receivedAmount,
+          paymentMode: form.payment_type,
+        })
+        if (waUrl) waWindow.location.href = waUrl
+        else waWindow.close()
+      }
+
+      navigate(`/invoices/${savedId}`)
     } catch (err) {
+      waWindow?.close()
       notify(err.message || 'Error saving invoice', 'error')
     } finally {
       setSaving(false)
@@ -878,8 +905,7 @@ export default function InvoiceForm() {
                 <th className="min-w-[220px] border-r border-gray-300 px-3 py-2.5 font-bold dark:border-gray-600">ITEM</th>
                 <th className="w-20 border-r border-gray-300 px-2 py-2.5 text-center font-bold dark:border-gray-600">QTY</th>
                 <th className="w-20 border-r border-gray-300 px-2 py-2.5 text-center font-bold dark:border-gray-600">FREE QTY</th>
-                <th className="w-28 border-r border-gray-300 px-2 py-2.5 font-bold dark:border-gray-600">UNIT</th>
-                <th className="w-28 border-r border-gray-300 px-2 py-2.5 text-right font-bold dark:border-gray-600">PRICE/UNIT</th>
+                <th className="w-28 border-r border-gray-300 px-2 py-2.5 text-right font-bold dark:border-gray-600">PRICE</th>
                 <th className="w-40 border-r border-gray-300 px-2 py-2.5 text-center font-bold dark:border-gray-600">
                   <div className="border-b border-gray-300 pb-1 dark:border-gray-600">DISCOUNT</div>
                   <div className="grid grid-cols-2 pt-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
@@ -934,22 +960,7 @@ export default function InvoiceForm() {
                     />
                   </td>
 
-                  {/* UNIT */}
-                  <td className="border-r border-gray-200 px-1.5 py-1.5 dark:border-gray-700">
-                    <select
-                      value={row.unit}
-                      onChange={(e) => updateRow(idx, 'unit', e.target.value)}
-                      className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm font-medium text-gray-800 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                    >
-                      {UNIT_OPTIONS.map((u) => (
-                        <option key={u} value={u}>
-                          {u}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-
-                  {/* PRICE/UNIT */}
+                  {/* PRICE */}
                   <td className="border-r border-gray-200 px-1.5 py-1.5 text-right dark:border-gray-700">
                     <input
                       type="text"
@@ -1022,7 +1033,6 @@ export default function InvoiceForm() {
                 <td className="border-r border-gray-300 px-2 py-2.5 text-center dark:border-gray-600">
                   {totalFreeQty || 0}
                 </td>
-                <td className="border-r border-gray-300 px-2 py-2.5 dark:border-gray-600" />
                 <td className="border-r border-gray-300 px-2 py-2.5 dark:border-gray-600" />
                 <td className="border-r border-gray-300 px-2 py-2.5 dark:border-gray-600" />
                 <td className="border-r border-gray-300 px-3 py-2.5 text-right text-sm font-extrabold text-brand-600 dark:border-gray-600 dark:text-brand-400">
@@ -1294,8 +1304,8 @@ export default function InvoiceForm() {
               }`}
               title={
                 form.phone?.trim()
-                  ? `After saving, you can send the invoice PDF to ${form.phone} from your WhatsApp`
-                  : 'Enter a customer phone number above to send WhatsApp PDF'
+                  ? `After saving, a WhatsApp chat with ${form.phone} opens with the invoice message ready to send`
+                  : 'Enter a customer phone number above to send the invoice on WhatsApp'
               }
             >
               <input
@@ -1306,7 +1316,7 @@ export default function InvoiceForm() {
               />
               <WhatsAppIcon width={16} height={16} className={autoSendWhatsApp && form.phone?.trim() ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'} />
               <span>
-                Send PDF on WhatsApp
+                Send message on WhatsApp
                 {form.phone?.trim() ? (
                   <span className="font-mono text-[11px] font-bold ml-1 text-emerald-700 dark:text-emerald-300">
                     ({form.phone.trim()})

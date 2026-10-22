@@ -215,11 +215,6 @@ export default function ItemCombobox({
                     <span className="truncate font-semibold text-gray-900 dark:text-gray-100">
                       {item.name}
                     </span>
-                    {item.unit && (
-                      <span className="text-[10px] text-gray-400">
-                        Unit: {item.unit}
-                      </span>
-                    )}
                   </div>
                   {Number(item.rate) > 0 && (
                     <span className="shrink-0 font-mono text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
