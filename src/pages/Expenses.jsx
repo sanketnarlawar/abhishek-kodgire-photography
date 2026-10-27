@@ -12,21 +12,29 @@ import { EXPENSE_CATEGORIES, formatCurrency, formatDate } from '../lib/format'
 
 const today = () => new Date().toISOString().slice(0, 10)
 
+// Keeps only digits and a single decimal point.
+const cleanDecimal = (v) => v.replace(/[^\d.]/g, '').replace(/^(\d*\.\d*).*$/, '$1')
+
 const emptyItemRow = () => ({
   item: '',
   quantity: 1,
   amount: '',
 })
 
+const PAYMENT_MODES = ['Cash', 'UPI', 'Cheque', 'NEFT', 'RTGS', 'IMPS', 'Bank Transfer', 'Debit / Credit Card', 'Net Banking']
+
 const emptyForm = {
   expense_date: today(),
   category: 'Equipment',
+  payment_mode: 'Cash',
+  payment_ref: '',
   name: '',
   phone: '',
   address: '',
   items: [emptyItemRow()],
   transportation: '',
   other_charges: '',
+  gst_charges: '',
   amount: 0,
   description: '',
 }
@@ -34,11 +42,12 @@ const emptyForm = {
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const monthKey = (dateStr) => (dateStr ? dateStr.slice(0, 7) : '')
 
-function computeTotal(items, transport, other) {
+function computeTotal(items, transport, other, gst) {
   const itemsTotal = (items || []).reduce((s, it) => s + (Number(it.amount) || 0), 0)
   const t = Number(transport) || 0
   const o = Number(other) || 0
-  return Number((itemsTotal + t + o).toFixed(2))
+  const g = Number(gst) || 0
+  return Number((itemsTotal + t + o + g).toFixed(2))
 }
 
 function parseExpense(exp) {
@@ -78,6 +87,9 @@ function parseExpense(exp) {
     items: items,
     transportation: transport,
     other_charges: otherCharges,
+    gst_charges: exp.gst_charges != null ? exp.gst_charges : (meta?.gst_charges != null ? meta.gst_charges : ''),
+    payment_mode: exp.payment_mode || meta?.payment_mode || '',
+    payment_ref: exp.payment_ref || meta?.payment_ref || '',
     description: meta ? (meta.description || '') : (exp.description || ''),
   }
 }
@@ -122,17 +134,20 @@ export default function Expenses() {
         }))
       : [emptyItemRow()]
 
-    const totalAmt = computeTotal(items, exp.transportation, exp.other_charges)
+    const totalAmt = computeTotal(items, exp.transportation, exp.other_charges, exp.gst_charges)
 
     setForm({
       expense_date: exp.expense_date || today(),
       category: exp.category || 'Equipment',
+      payment_mode: exp.payment_mode || 'Cash',
+      payment_ref: exp.payment_ref || '',
       name: exp.name || '',
       phone: exp.phone || exp.mobile_number || '',
       address: exp.address || '',
       items,
       transportation: exp.transportation !== '' && exp.transportation != null ? exp.transportation : '',
       other_charges: exp.other_charges !== '' && exp.other_charges != null ? exp.other_charges : '',
+      gst_charges: exp.gst_charges !== '' && exp.gst_charges != null ? exp.gst_charges : '',
       amount: totalAmt > 0 ? totalAmt : (exp.amount || 0),
       description: exp.description || '',
     })
@@ -144,7 +159,7 @@ export default function Expenses() {
     setForm((prev) => {
       const nextItems = [...prev.items]
       nextItems[index] = { ...nextItems[index], [field]: value }
-      const totalAmt = computeTotal(nextItems, prev.transportation, prev.other_charges)
+      const totalAmt = computeTotal(nextItems, prev.transportation, prev.other_charges, prev.gst_charges)
       return { ...prev, items: nextItems, amount: totalAmt }
     })
   }
@@ -160,7 +175,7 @@ export default function Expenses() {
     setForm((prev) => {
       const nextItems = prev.items.filter((_, i) => i !== index)
       const rows = nextItems.length > 0 ? nextItems : [emptyItemRow()]
-      const totalAmt = computeTotal(rows, prev.transportation, prev.other_charges)
+      const totalAmt = computeTotal(rows, prev.transportation, prev.other_charges, prev.gst_charges)
       return { ...prev, items: rows, amount: totalAmt }
     })
   }
@@ -169,7 +184,7 @@ export default function Expenses() {
   const handleExtraChargeChange = (field, value) => {
     setForm((prev) => {
       const nextForm = { ...prev, [field]: value }
-      const totalAmt = computeTotal(nextForm.items, nextForm.transportation, nextForm.other_charges)
+      const totalAmt = computeTotal(nextForm.items, nextForm.transportation, nextForm.other_charges, nextForm.gst_charges)
       return { ...nextForm, amount: totalAmt }
     })
   }
@@ -191,7 +206,8 @@ export default function Expenses() {
 
     const transportVal = form.transportation !== '' && !isNaN(Number(form.transportation)) ? Number(form.transportation) : 0
     const otherVal = form.other_charges !== '' && !isNaN(Number(form.other_charges)) ? Number(form.other_charges) : 0
-    const finalAmount = computeTotal(itemsPayload, transportVal, otherVal)
+    const gstVal = form.gst_charges !== '' && !isNaN(Number(form.gst_charges)) ? Number(form.gst_charges) : 0
+    const finalAmount = computeTotal(itemsPayload, transportVal, otherVal, gstVal)
 
     const itemsSummary = itemsPayload.map((it) => it.item).filter(Boolean).join(', ') || null
     const totalQuantity = itemsPayload.reduce((s, it) => s + (Number(it.quantity) || 1), 0)
@@ -199,6 +215,8 @@ export default function Expenses() {
     const payload = {
       expense_date: form.expense_date || today(),
       category: form.category || 'Other',
+      payment_mode: form.payment_mode || null,
+      payment_ref: form.payment_ref?.trim() || null,
       name: form.name?.trim() || null,
       phone: form.phone?.trim() || null,
       address: form.address?.trim() || null,
@@ -207,30 +225,35 @@ export default function Expenses() {
       quantity: totalQuantity,
       transportation: transportVal,
       other_charges: otherVal,
+      gst_charges: gstVal,
       description: form.description?.trim() || null,
       amount: finalAmount > 0 ? finalAmount : (Number(form.amount) || 0),
+    }
+
+    // Schema fallback if migrations have not been run in Supabase SQL editor yet
+    const meta = {
+      name: payload.name,
+      phone: payload.phone,
+      address: payload.address,
+      items: payload.items,
+      transportation: payload.transportation,
+      other_charges: payload.other_charges,
+      gst_charges: payload.gst_charges,
+      payment_mode: payload.payment_mode,
+      payment_ref: payload.payment_ref,
+      description: payload.description,
+    }
+    const fallbackPayload = {
+      expense_date: payload.expense_date,
+      category: payload.category,
+      amount: payload.amount,
+      description: `__EXPENSE_META__:${JSON.stringify(meta)}`,
     }
 
     try {
       if (editingExpense) {
         let { error } = await supabase.from('expenses').update(payload).eq('id', editingExpense.id)
         if (error && (error.code === 'PGRST204' || error.message?.includes('does not exist'))) {
-          // Schema fallback if migrations have not been run in Supabase SQL editor yet
-          const meta = {
-            name: payload.name,
-            phone: payload.phone,
-            address: payload.address,
-            items: payload.items,
-            transportation: payload.transportation,
-            other_charges: payload.other_charges,
-            description: payload.description,
-          }
-          const fallbackPayload = {
-            expense_date: payload.expense_date,
-            category: payload.category,
-            amount: payload.amount,
-            description: `__EXPENSE_META__:${JSON.stringify(meta)}`,
-          }
           const { error: err2 } = await supabase.from('expenses').update(fallbackPayload).eq('id', editingExpense.id)
           if (err2) throw err2
         } else if (error) {
@@ -240,21 +263,6 @@ export default function Expenses() {
       } else {
         let { error } = await supabase.from('expenses').insert(payload)
         if (error && (error.code === 'PGRST204' || error.message?.includes('does not exist'))) {
-          const meta = {
-            name: payload.name,
-            phone: payload.phone,
-            address: payload.address,
-            items: payload.items,
-            transportation: payload.transportation,
-            other_charges: payload.other_charges,
-            description: payload.description,
-          }
-          const fallbackPayload = {
-            expense_date: payload.expense_date,
-            category: payload.category,
-            amount: payload.amount,
-            description: `__EXPENSE_META__:${JSON.stringify(meta)}`,
-          }
           const { error: err2 } = await supabase.from('expenses').insert(fallbackPayload)
           if (err2) throw err2
         } else if (error) {
@@ -306,7 +314,9 @@ export default function Expenses() {
         const nameMatch = (e.name || '').toLowerCase().includes(q)
         const phoneMatch = (e.phone || '').toLowerCase().includes(q)
         const addressMatch = (e.address || '').toLowerCase().includes(q)
-        const catMatch = (e.category || '').toLowerCase().includes(q)
+        const catMatch = (e.category || '').toLowerCase().includes(q) ||
+          (e.payment_mode || '').toLowerCase().includes(q) ||
+          (e.payment_ref || '').toLowerCase().includes(q)
         const descMatch = (e.description || '').toLowerCase().includes(q)
         const itemsMatch = Array.isArray(e.items) && e.items.some((it) => (it.item || '').toLowerCase().includes(q))
         return nameMatch || phoneMatch || addressMatch || catMatch || descMatch || itemsMatch
@@ -529,8 +539,13 @@ export default function Expenses() {
                         )}
 
                         {/* Extra Charges breakdown tags */}
-                        {(Number(e.transportation) > 0 || Number(e.other_charges) > 0) && (
+                        {(Number(e.transportation) > 0 || Number(e.other_charges) > 0 || Number(e.gst_charges) > 0) && (
                           <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                            {Number(e.gst_charges) > 0 && (
+                              <span className="badge bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                GST: +{formatCurrency(e.gst_charges)}
+                              </span>
+                            )}
                             {Number(e.transportation) > 0 && (
                               <span className="badge bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
                                 Transport: +{formatCurrency(e.transportation)}
@@ -579,6 +594,12 @@ export default function Expenses() {
                     <span className="badge bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                       {e.category}
                     </span>
+                    {e.payment_mode && (
+                      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {e.payment_mode}
+                        {e.payment_ref ? ` · ${e.payment_ref}` : ''}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">
                     {formatCurrency(e.amount)}
@@ -639,6 +660,30 @@ export default function Expenses() {
                 onChange={(v) => setForm({ ...form, category: v })}
                 placeholder="Enter category"
                 required
+              />
+            </div>
+            <div>
+              <label className="label">Payment Mode</label>
+              <select
+                className="input"
+                value={form.payment_mode}
+                onChange={(e) => setForm({ ...form, payment_mode: e.target.value })}
+              >
+                {PAYMENT_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">UTR / Cheque No.</label>
+              <input
+                type="text"
+                placeholder="e.g. UTR / transaction ID / cheque number"
+                className="input"
+                value={form.payment_ref}
+                onChange={(e) => setForm({ ...form, payment_ref: e.target.value })}
               />
             </div>
           </div>
@@ -730,25 +775,23 @@ export default function Expenses() {
                   <div className="sm:col-span-2">
                     <label className="text-xs font-medium text-gray-500 sm:hidden">Quantity</label>
                     <input
-                      type="number"
-                      min="0.01"
-                      step="any"
+                      type="text"
+                      inputMode="decimal"
                       placeholder="1"
                       className="input text-sm text-center"
                       value={row.quantity}
-                      onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
+                      onChange={(e) => handleItemChange(idx, 'quantity', cleanDecimal(e.target.value))}
                     />
                   </div>
                   <div className="sm:col-span-3">
                     <label className="text-xs font-medium text-gray-500 sm:hidden">Amount (₹)</label>
                     <input
-                      type="number"
-                      min="0"
-                      step="any"
+                      type="text"
+                      inputMode="decimal"
                       placeholder="0.00"
                       className="input text-sm text-right font-medium"
                       value={row.amount}
-                      onChange={(e) => handleItemChange(idx, 'amount', e.target.value)}
+                      onChange={(e) => handleItemChange(idx, 'amount', cleanDecimal(e.target.value))}
                     />
                   </div>
                   <div className="flex justify-end sm:col-span-1 sm:justify-center">
@@ -786,25 +829,34 @@ export default function Expenses() {
               <div>
                 <label className="label">Transportation / Shipping (₹)</label>
                 <input
-                  type="number"
-                  min="0"
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="0.00"
                   className="input font-medium"
                   value={form.transportation}
-                  onChange={(e) => handleExtraChargeChange('transportation', e.target.value)}
+                  onChange={(e) => handleExtraChargeChange('transportation', cleanDecimal(e.target.value))}
                 />
               </div>
               <div>
                 <label className="label">Other Charges / Handling (₹)</label>
                 <input
-                  type="number"
-                  min="0"
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="0.00"
                   className="input font-medium"
                   value={form.other_charges}
-                  onChange={(e) => handleExtraChargeChange('other_charges', e.target.value)}
+                  onChange={(e) => handleExtraChargeChange('other_charges', cleanDecimal(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="label">GST Charges (₹)</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  className="input font-medium"
+                  value={form.gst_charges}
+                  onChange={(e) => handleExtraChargeChange('gst_charges', cleanDecimal(e.target.value))}
                 />
               </div>
             </div>
@@ -828,6 +880,12 @@ export default function Expenses() {
                   <div className="flex justify-between text-purple-600 dark:text-purple-400">
                     <span>+ Other Charges:</span>
                     <span className="font-medium">+{formatCurrency(form.other_charges)}</span>
+                  </div>
+                )}
+                {Number(form.gst_charges) > 0 && (
+                  <div className="flex justify-between text-amber-600 dark:text-amber-400">
+                    <span>+ GST Charges:</span>
+                    <span className="font-medium">+{formatCurrency(form.gst_charges)}</span>
                   </div>
                 )}
               </div>
