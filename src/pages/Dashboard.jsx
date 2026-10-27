@@ -14,7 +14,6 @@ import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/Loaders'
 import CountUp from '../components/CountUp'
 import DateField from '../components/DateField'
-import StatusBadge from '../components/StatusBadge'
 import { useTheme } from '../contexts/ThemeContext'
 import { useProfile } from '../contexts/ProfileContext'
 import { formatCurrency, formatDate } from '../lib/format'
@@ -121,6 +120,7 @@ export default function Dashboard() {
   const [invoices, setInvoices] = useState([])
   const [payments, setPayments] = useState([])
   const [expenses, setExpenses] = useState([])
+  const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [filterType, setFilterType] = useState('today')
@@ -174,14 +174,22 @@ export default function Dashboard() {
 
   useEffect(() => {
     const load = async () => {
-      const [inv, pay, exp] = await Promise.all([
+      const [inv, pay, exp, evt] = await Promise.all([
         supabase.from('invoices').select('*, client:clients(name)').order('issue_date', { ascending: false }),
         supabase.from('payments').select('amount, payment_date, invoice_id'),
         supabase.from('expenses').select('amount, expense_date'),
+        supabase
+          .from('quotations')
+          .select('id, event_type, event_date, status, client:clients(name)')
+          .gte('event_date', formatLocalYMD(new Date()))
+          .neq('status', 'Rejected')
+          .order('event_date', { ascending: true })
+          .limit(50),
       ])
       setInvoices(inv.data || [])
       setPayments(pay.data || [])
       setExpenses(exp.data || [])
+      setEvents(evt.data || [])
       setLoading(false)
     }
     load()
@@ -323,7 +331,15 @@ export default function Dashboard() {
     [chartData]
   )
 
-  const recent = invoices.slice(0, 5)
+  const upcoming = events.slice(0, 3)
+
+  const daysAway = (dateStr) => {
+    const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number)
+    const diff = Math.round((new Date(y, m - 1, d) - new Date(new Date().setHours(0, 0, 0, 0))) / 86400000)
+    if (diff <= 0) return 'Today'
+    if (diff === 1) return 'Tomorrow'
+    return `In ${diff} days`
+  }
 
   if (loading) return <PageLoader />
 
@@ -524,29 +540,28 @@ export default function Dashboard() {
 
         <div className="card">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-semibold">Recent Invoices</h3>
-            <Link to="/invoices" className="text-sm font-medium text-brand-600 hover:underline">
-              View all
+            <h3 className="font-semibold">Upcoming Events</h3>
+            <Link to="/quotations" className="text-sm font-medium text-brand-600 hover:underline">
+              Show all
             </Link>
           </div>
-          {recent.length === 0 ? (
-            <p className="text-sm text-gray-500">No invoices yet.</p>
+          {upcoming.length === 0 ? (
+            <p className="text-sm text-gray-500">No upcoming events. Add an event date to a quotation.</p>
           ) : (
             <ul className="space-y-3">
-              {recent.map((inv) => (
-                <li key={inv.id} className="flex items-center justify-between">
-                  <div>
-                    <Link to={`/invoices/${inv.id}`} className="font-medium text-brand-600 hover:underline">
-                      {inv.invoice_number}
+              {upcoming.map((ev) => (
+                <li key={ev.id} className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link to={`/quotations/${ev.id}`} className="block truncate font-medium text-brand-600 hover:underline">
+                      {ev.client?.name || '-'}
                     </Link>
                     <p className="text-xs text-gray-500">
-                      {inv.client?.name || '-'} · {formatDate(inv.issue_date)}
+                      {ev.event_type || 'Event'} · {formatDate(ev.event_date)}
                     </p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium">{formatCurrency(inv.total)}</p>
-                    <StatusBadge status={inv.status} />
-                  </div>
+                  <span className="shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">
+                    {daysAway(ev.event_date)}
+                  </span>
                 </li>
               ))}
             </ul>

@@ -218,17 +218,22 @@ export default function InvoiceForm() {
         const rows = (q?.items || []).map((it) => {
           const qty = it.quantity || 1
           const rate = it.rate || 0
+          const amount = it.amount ?? qty * rate
           return {
             description: it.description || '',
             quantity: qty,
-            free_qty: '',
-            unit: 'Photo',
+            free_qty: it.free_qty || '',
+            unit: it.unit || 'Photo',
             rate: rate || '',
-            discount_percent: '',
-            discount_amount: '',
-            amount: qty * rate || '',
+            discount_percent: it.discount_percent || '',
+            discount_amount: it.discount_amount || '',
+            amount: amount || '',
           }
         })
+        // Service-only quotations carry just a package total; bill it on the first line.
+        if (rows.length > 0 && !rows.some((r) => Number(r.amount) > 0) && Number(q?.total) > 0) {
+          rows[0] = { ...rows[0], quantity: 1, rate: q.total, amount: q.total }
+        }
         while (rows.length < 3) {
           rows.push(emptyRow('NONE'))
         }

@@ -14,6 +14,7 @@ import InvoiceForm from './pages/InvoiceForm'
 import InvoiceView from './pages/InvoiceView'
 import Quotations from './pages/Quotations'
 import QuotationForm from './pages/QuotationForm'
+import QuotationView from './pages/QuotationView'
 import Settings from './pages/Settings'
 
 function ProtectedRoute({ children }) {
@@ -48,6 +49,7 @@ export default function App() {
       <Route path="/quotations" element={<ProtectedRoute><Quotations /></ProtectedRoute>} />
       <Route path="/quotations/new" element={<ProtectedRoute><QuotationForm /></ProtectedRoute>} />
       <Route path="/quotations/:id/edit" element={<ProtectedRoute><QuotationForm /></ProtectedRoute>} />
+      <Route path="/quotations/:id" element={<ProtectedRoute><QuotationView /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

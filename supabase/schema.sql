@@ -81,6 +81,7 @@ create table if not exists public.quotations (
   total numeric default 0,
   notes text,
   status text default 'Draft',
+  details jsonb default '{}'::jsonb,
   created_at timestamptz default now()
 );
 
@@ -109,6 +110,9 @@ create table if not exists public.expenses (
   items jsonb default '[]'::jsonb,
   transportation numeric default 0,
   other_charges numeric default 0,
+  gst_charges numeric default 0,
+  payment_mode text,
+  payment_ref text,
   description text,
   amount numeric not null default 0,
   created_at timestamptz default now()

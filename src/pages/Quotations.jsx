@@ -10,18 +10,20 @@ import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import { useSortPaginate } from '../lib/useSortPaginate'
 import { PlusIcon, TrashIcon, QuoteIcon, CopyIcon, ArrowUpDownIcon } from '../components/icons'
-import { formatCurrency, formatDate, QUOTATION_STATUSES } from '../lib/format'
+import { formatCurrency, formatDate, quotationName, QUOTATION_STATUSES } from '../lib/format'
 
 const getValue = (q, key) => {
   switch (key) {
     case 'quotation_number':
-      return q.quotation_number || ''
+      return quotationName(q, q.client).toLowerCase()
     case 'client':
       return (q.client?.name || '').toLowerCase()
     case 'event_type':
       return (q.event_type || '').toLowerCase()
     case 'issue_date':
       return q.issue_date || ''
+    case 'event_date':
+      return q.event_date || ''
     case 'total':
       return Number(q.total) || 0
     case 'status':
@@ -71,7 +73,7 @@ export default function Quotations() {
   const remove = async (q) => {
     const ok = await confirm({
       title: 'Delete quotation?',
-      message: `${q.quotation_number} will be permanently removed.`,
+      message: `${quotationName(q, q.client)} will be permanently removed.`,
       confirmText: 'Delete',
     })
     if (!ok) return
@@ -97,13 +99,13 @@ export default function Quotations() {
         event_type: q.event_type,
         event_date: q.event_date,
         issue_date: new Date().toISOString().slice(0, 10),
-        valid_until: q.valid_until,
         items: q.items,
         discount: q.discount,
         subtotal: q.subtotal,
         total: q.total,
         notes: q.notes,
         status: 'Draft',
+        details: q.details || {},
       })
       .select('id')
       .single()
@@ -151,7 +153,7 @@ export default function Quotations() {
       </div>
 
       {loading ? (
-        <TableSkeleton cols={7} />
+        <TableSkeleton cols={8} />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={QuoteIcon}
@@ -175,10 +177,11 @@ export default function Quotations() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left dark:bg-gray-800">
                 <tr>
-                  <SortableTh label="Quote #" sortKey="quotation_number" state={table} onSort={table.toggleSort} />
+                  <SortableTh label="Quotation" sortKey="quotation_number" state={table} onSort={table.toggleSort} />
                   <SortableTh label="Client" sortKey="client" state={table} onSort={table.toggleSort} />
                   <SortableTh label="Event" sortKey="event_type" state={table} onSort={table.toggleSort} />
-                  <SortableTh label="Date" sortKey="issue_date" state={table} onSort={table.toggleSort} />
+                  <SortableTh label="Quotation Generated Date" sortKey="issue_date" state={table} onSort={table.toggleSort} />
+                  <SortableTh label="Event Date" sortKey="event_date" state={table} onSort={table.toggleSort} />
                   <SortableTh label="Total" sortKey="total" state={table} onSort={table.toggleSort} className="text-right" />
                   <SortableTh label="Status" sortKey="status" state={table} onSort={table.toggleSort} />
                   <th className="px-4 py-3 text-right font-medium">Actions</th>
@@ -187,16 +190,25 @@ export default function Quotations() {
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {table.pageRows.map((q) => (
                   <tr key={q.id} className="row-hover bg-white dark:bg-gray-900/40">
-                    <td className="px-4 py-3 font-medium">{q.quotation_number}</td>
+                    <td className="px-4 py-3 font-medium">
+                      <Link to={`/quotations/${q.id}`} className="text-brand-600 hover:underline">
+                        {quotationName(q, q.client)}
+                      </Link>
+                      <div className="text-xs font-normal text-gray-400">{q.quotation_number}</div>
+                    </td>
                     <td className="px-4 py-3">{q.client?.name || '-'}</td>
                     <td className="px-4 py-3">{q.event_type || '-'}</td>
                     <td className="px-4 py-3">{formatDate(q.issue_date)}</td>
+                    <td className="px-4 py-3">{formatDate(q.event_date)}</td>
                     <td className="px-4 py-3 text-right font-medium">{formatCurrency(q.total)}</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={q.status} />
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-3">
+                        <Link to={`/quotations/${q.id}`} className="text-sm font-medium text-brand-600 hover:underline">
+                          View
+                        </Link>
                         <Link to={`/quotations/${q.id}/edit`} className="text-sm font-medium text-brand-600 hover:underline">
                           Edit
                         </Link>

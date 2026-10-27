@@ -16,6 +16,29 @@ export const INVOICE_STATUSES = ['Unpaid', 'Partially Paid', 'Paid', 'Overdue']
 
 export const QUOTATION_STATUSES = ['Draft', 'Sent', 'Accepted', 'Rejected']
 
+export const DELIVERY_STATUSES = ['Completed', 'Pending', 'In Progress', 'Awaiting Client Approval']
+
+export const DELIVERY_WORKFLOW_OPTIONS = [
+  'Google Drive Photo Upload',
+  'Album selection, send',
+  'Album editing',
+  'Album sent to print',
+  'Album ready to Delivery',
+  'Cinematic Film Delivery',
+  'Cinematic Reels Delivery',
+  'Traditional Video Delivery',
+]
+
+// Steps pre-filled on a new quotation.
+export const DEFAULT_DELIVERY_WORKFLOW = [
+  'Google Drive Photo Upload',
+  'Album selection, send',
+  'Album editing',
+  'Album sent to print',
+  'Album ready to Delivery',
+  'Cinematic Reels Delivery',
+]
+
 export const PAYMENT_MODES = ['UPI', 'Cash', 'Bank Transfer', 'Card', 'Cheque']
 
 export const EXPENSE_CATEGORIES = [
@@ -47,6 +70,20 @@ export function formatDate(value) {
     month: 'short',
     year: 'numeric',
   })
+}
+
+// "Customer - Event Type - Event Date", safe to use as a file name.
+export function quotationName(quotation, client) {
+  quotation = quotation || {}
+  const parts = [
+    client?.name,
+    quotation.event_type,
+    quotation.event_date ? formatDate(quotation.event_date).replace(/ /g, '-') : '',
+  ]
+    .map((p) => (p || '').trim())
+    .filter(Boolean)
+  const name = parts.join(' - ').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return name || quotation.quotation_number || 'Quotation'
 }
 
 export function formatTime(value) {

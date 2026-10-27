@@ -15,6 +15,10 @@ export default function ItemCombobox({
   onSelectItem,
   itemsList = [],
   placeholder = 'e.g. Soft copy Studio / Candid Photography',
+  listTitle = 'Saved Studio Items',
+  matchTitle = 'Matching Items',
+  newBadge = 'New item',
+  limit = 8,
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
@@ -56,11 +60,11 @@ export default function ItemCombobox({
   // Filter items matching typed query
   const query = (value || '').trim().toLowerCase()
   const filtered = useMemo(() => {
-    if (!query) return itemsList.slice(0, 8)
+    if (!query) return itemsList.slice(0, limit)
     return itemsList
       .filter((it) => (it.name || '').toLowerCase().includes(query))
-      .slice(0, 10)
-  }, [itemsList, query])
+      .slice(0, Math.max(limit, 10))
+  }, [itemsList, query, limit])
 
   const exactMatch = useMemo(() => {
     if (!query) return null
@@ -160,7 +164,7 @@ export default function ItemCombobox({
         <div ref={dropdownRef} style={dropdownStyle} className="fixed z-50 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
           {/* Header */}
           <div className="border-b border-gray-100 bg-gray-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-gray-400">
-            {query ? 'Matching Items' : itemsList.length > 0 ? 'Saved Studio Items' : 'Item Suggestions'}
+            {query ? matchTitle : itemsList.length > 0 ? listTitle : 'Item Suggestions'}
           </div>
 
           {/* Add New Option */}
@@ -186,7 +190,7 @@ export default function ItemCombobox({
                 </span>
               </div>
               <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                New item
+                {newBadge}
               </span>
             </button>
           )}
