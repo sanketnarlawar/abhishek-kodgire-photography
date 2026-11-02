@@ -12,6 +12,7 @@ import { PageLoader } from '../components/Loaders'
 import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import { TrashIcon } from '../components/icons'
+import DateField from '../components/DateField'
 import { buildInvoiceWhatsAppUrl } from '../lib/whatsapp'
 import {
   formatCurrency,
@@ -94,6 +95,11 @@ export default function InvoiceView() {
       await supabase.from('invoices').update({ status }).eq('id', id)
       setInvoice((inv) => ({ ...inv, status }))
     }
+  }
+
+  const openPayModal = () => {
+    setPayForm({ amount: balance || 0, payment_date: today(), mode: 'UPI', note: '' })
+    setPayModalOpen(true)
   }
 
   const addPayment = async (e) => {
@@ -380,7 +386,115 @@ export default function InvoiceView() {
             </div>
           )}
         </div>
+
+        {/* Payments received history */}
+        <div className="card mt-4">
+          <div className="flex items-center justify-between border-b border-gray-200 pb-3 dark:border-gray-700">
+            <div>
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Payments received</h3>
+              <p className="text-xs text-gray-500">
+                {formatCurrency(paid)} received · {formatCurrency(balance)} balance
+              </p>
+            </div>
+            <button onClick={openPayModal} className="btn-primary">
+              Record payment
+            </button>
+          </div>
+
+          {payments.length === 0 ? (
+            <p className="py-4 text-center text-sm text-gray-400">No payments recorded yet.</p>
+          ) : (
+            <table className="mt-2 w-full text-sm">
+              <thead className="text-left text-xs uppercase text-gray-400">
+                <tr>
+                  <th className="py-2">Date</th>
+                  <th className="py-2">Mode</th>
+                  <th className="py-2">Note</th>
+                  <th className="py-2 text-right">Amount</th>
+                  <th className="py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((p) => (
+                  <tr key={p.id} className="border-t border-gray-100 dark:border-gray-700/50">
+                    <td className="py-2">{formatDate(p.payment_date)}</td>
+                    <td className="py-2">{p.mode || '—'}</td>
+                    <td className="py-2 text-gray-500">{p.note || '—'}</td>
+                    <td className="py-2 text-right font-medium text-green-600">{formatCurrency(p.amount)}</td>
+                    <td className="py-2 text-right">
+                      <button
+                        onClick={() => removePayment(p)}
+                        className="text-gray-400 hover:text-red-600"
+                        title="Delete payment"
+                      >
+                        <TrashIcon width={16} height={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
+
+      <Modal open={payModalOpen} onClose={() => setPayModalOpen(false)} title="Record payment" size="sm">
+        <form onSubmit={addPayment} className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Amount</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={payForm.amount}
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === '' || /^\d*\.?\d*$/.test(val)) setPayForm((f) => ({ ...f, amount: val }))
+              }}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Received on</label>
+            <DateField
+              value={payForm.payment_date}
+              onChange={(val) => setPayForm((f) => ({ ...f, payment_date: val }))}
+              ariaLabel="Payment date"
+              className="w-full"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Mode</label>
+            <select
+              value={payForm.mode}
+              onChange={(e) => setPayForm((f) => ({ ...f, mode: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+            >
+              {PAYMENT_MODES.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Note (optional)</label>
+            <input
+              type="text"
+              value={payForm.note}
+              onChange={(e) => setPayForm((f) => ({ ...f, note: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setPayModalOpen(false)} className="btn-secondary">
+              Cancel
+            </button>
+            <button type="submit" className="btn-primary">
+              Save payment
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

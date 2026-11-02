@@ -9,6 +9,7 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { formatCurrency } from '../lib/format'
 import { TrashIcon, PlusIcon, SettingsIcon, WhatsAppIcon, ArrowLeftIcon } from '../components/icons'
 import ItemCombobox from '../components/ItemCombobox'
+import DateField from '../components/DateField'
 import { loadItemsLibrary, saveItemsToLibrary } from '../lib/itemService'
 import { useProfile } from '../contexts/ProfileContext'
 import { buildInvoiceWhatsAppUrl } from '../lib/whatsapp'
@@ -87,6 +88,7 @@ export default function InvoiceForm() {
     round_off: false,
     received_checked: false,
     received: '',
+    received_date: today(),
   })
   const [receivedIsCustom, setReceivedIsCustom] = useState(false)
 
@@ -203,6 +205,7 @@ export default function InvoiceForm() {
             round_off: false,
             received_checked: paidTotal > 0,
             received: paidTotal > 0 ? paidTotal : '',
+            received_date: today(),
           })
           if (paidTotal > 0) {
             setReceivedIsCustom(true)
@@ -492,6 +495,7 @@ export default function InvoiceForm() {
       ...prev,
       received_checked: checked,
       received: checked ? (finalTotal > 0 ? finalTotal : 0) : '',
+      received_date: checked ? (prev.received_date || today()) : prev.received_date,
     }))
   }
 
@@ -657,7 +661,7 @@ export default function InvoiceForm() {
           const { error: paymentError } = await supabase.from('payments').insert({
             invoice_id: id,
             amount: difference / 100,
-            payment_date: form.invoice_date,
+            payment_date: form.received_date || form.invoice_date,
             mode: form.payment_type,
             note: form.description || 'Payment received while editing invoice',
             is_advance: false,
@@ -689,7 +693,7 @@ export default function InvoiceForm() {
           const { error: paymentError } = await supabase.from('payments').insert({
             invoice_id: savedId,
             amount: receivedAmount,
-            payment_date: form.invoice_date,
+            payment_date: form.received_date || form.invoice_date,
             mode: form.payment_type,
             note: form.description || 'Payment received at creation',
             is_advance: true,
@@ -1253,6 +1257,18 @@ export default function InvoiceForm() {
                   />
                 </div>
               </div>
+
+              {/* Received date */}
+              {form.received_checked && (
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="font-semibold text-gray-600 dark:text-gray-300">Received on</span>
+                  <DateField
+                    value={form.received_date}
+                    onChange={(val) => setForm((prev) => ({ ...prev, received_date: val }))}
+                    ariaLabel="Payment received date"
+                  />
+                </div>
+              )}
 
               {/* Status indicator / Full Amount shortcut */}
               {form.received_checked && (

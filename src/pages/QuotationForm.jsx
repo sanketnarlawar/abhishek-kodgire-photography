@@ -5,9 +5,11 @@ import RowsEditor from '../components/RowsEditor'
 import SelectWithOther from '../components/SelectWithOther'
 import ClientFormModal from '../components/ClientFormModal'
 import CustomerCombobox from '../components/CustomerCombobox'
-import ItemCombobox from '../components/ItemCombobox'
+import EventScheduleEditor from '../components/EventScheduleEditor'
+import EventDeliveryEditor from '../components/EventDeliveryEditor'
 import { PageLoader } from '../components/Loaders'
-import { ArrowLeftIcon, PlusIcon, TrashIcon } from '../components/icons'
+import { ArrowLeftIcon } from '../components/icons'
+import { emptyEvent, newEventId, uniqueNames } from '../lib/eventServices'
 import { useToast } from '../contexts/ToastContext'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import {
@@ -30,25 +32,23 @@ const DEFAULT_SERVICES = [
   'Drone Coverage',
 ]
 
-const emptyService = () => ({ description: '' })
-
-// Case-insensitive de-dupe that keeps the first spelling.
-const uniqueNames = (names) => {
-  const seen = new Set()
-  return names.filter((n) => {
-    const key = n.toLowerCase()
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+// Legacy quotations stored one flat service list; schedule events now own their services.
+const loadSchedule = (data, details) => {
+  const legacy = (data.items || []).map((it) => it.description).filter(Boolean)
+  let schedule = (details.schedule || []).map((r) => ({
+    ...emptyEvent(),
+    ...r,
+    id: r.id || newEventId(),
+    services: Array.isArray(r.services) ? r.services : [],
+  }))
+  if (schedule.length === 0) {
+    schedule = [{ ...emptyEvent(), date: data.event_date || '', event: data.event_type || '' }]
+  }
+  if (legacy.length > 0 && !schedule.some((ev) => ev.services.length > 0)) {
+    schedule[0] = { ...schedule[0], services: uniqueNames(legacy) }
+  }
+  return schedule
 }
-
-const SCHEDULE_COLUMNS = [
-  { key: 'date', label: 'Date', type: 'date', width: 'w-40' },
-  { key: 'event', label: 'Event', placeholder: 'e.g. Wedding' },
-  { key: 'coverage', label: 'Coverage', placeholder: 'e.g. Photography & Videography' },
-  { key: 'location', label: 'Location', placeholder: 'e.g. Mangal Karyalay' },
-]
 
 const PAYMENT_TYPES = ['Advance', 'Part Payment', 'Final Payment']
 
@@ -106,7 +106,6 @@ export default function QuotationForm() {
   const [clients, setClients] = useState([])
   const [customerName, setCustomerName] = useState('')
   const [packages, setPackages] = useState([])
-  const [selectedPackage, setSelectedPackage] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [clientModalOpen, setClientModalOpen] = useState(false)
@@ -125,13 +124,13 @@ export default function QuotationForm() {
     event_type: 'Wedding',
     event_date: '',
     issue_date: today(),
-    items: [emptyService(), emptyService(), emptyService()],
     total: '',
     notes: '',
     status: 'Draft',
     package_title: '',
     deliverables: '',
-    schedule: [],
+    schedule: [emptyEvent()],
+    extraServices: [],
     payments: [],
     delivery: [],
   })
@@ -153,6 +152,7 @@ export default function QuotationForm() {
           const clientObj = (clientData || []).find((c) => c.id === data.client_id)
           setCustomerName(clientObj?.name || '')
           const details = data.details || {}
+          const serviceRows = details.service_delivery || []
           setForm({
             quotation_number: data.quotation_number,
             client_id: data.client_id || '',
@@ -161,16 +161,15 @@ export default function QuotationForm() {
             event_type: data.event_type || 'Wedding',
             event_date: data.event_date || '',
             issue_date: data.issue_date || today(),
-            items: [
-              ...(data.items || []).map((it) => ({ description: it.description || '' })),
-              ...Array(Math.max(0, 3 - (data.items || []).length)).fill(null).map(emptyService),
-            ],
             total: data.total || '',
             notes: data.notes || '',
             status: data.status || 'Draft',
             package_title: details.package_title || '',
             deliverables: (details.deliverables || []).join('\n'),
-            schedule: details.schedule || [],
+            schedule: loadSchedule(data, details),
+            extraServices: serviceRows
+              .filter((r) => r.extra)
+              .map((r) => ({ event_id: r.event_id, name: r.service })),
             payments: (details.payments || []).map((p) => ({
               ...p,
               type: p.type || (p.advance ? 'Advance' : ''),
@@ -193,7 +192,10 @@ export default function QuotationForm() {
             (data || []).flatMap((q) => (q.details?.delivery || []).map((d) => d.workflow?.trim()).filter(Boolean))
           )
           setSavedServices(
-            (data || []).flatMap((q) => (q.items || []).map((it) => it.description?.trim()).filter(Boolean))
+            (data || []).flatMap((q) => [
+              ...(q.items || []).map((it) => it.description?.trim()),
+              ...(q.details?.schedule || []).flatMap((ev) => ev.services || []),
+            ]).filter(Boolean)
           )
         })
       setLoading(false)
@@ -249,29 +251,6 @@ export default function QuotationForm() {
     setForm((f) => ({ ...f, client_id: '', phone: '', billing_address: '' }))
   }
 
-  const updateService = (index, description) =>
-    setForm((f) => ({ ...f, items: f.items.map((row, i) => (i === index ? { description } : row)) }))
-
-  const addRow = () => setForm((f) => ({ ...f, items: [...f.items, emptyService()] }))
-
-  const removeRow = (index) =>
-    setForm((f) => ({
-      ...f,
-      items: f.items.length <= 1 ? [emptyService()] : f.items.filter((_, i) => i !== index),
-    }))
-
-  const addPackage = () => {
-    const pkg = packages.find((p) => p.id === selectedPackage)
-    if (!pkg) return
-    const added = (pkg.items || []).map((it) => ({ description: it.description || '' })).filter((it) => it.description)
-    setForm((f) => ({
-      ...f,
-      event_type: pkg.event_type || f.event_type,
-      items: [...f.items.filter((it) => it.description.trim()), ...added, emptyService()],
-    }))
-    setSelectedPackage('')
-  }
-
   const save = async (e) => {
     e.preventDefault()
     const trimmed = customerName.trim()
@@ -281,13 +260,19 @@ export default function QuotationForm() {
       notify('Please enter a Customer / Party name or phone number.', 'error')
       return
     }
-    const activeItems = form.items
-      .map((it) => ({ description: it.description.trim() }))
-      .filter((it) => it.description)
+    const events = form.schedule
+      .map((ev) => ({ ...ev, services: uniqueNames(ev.services.map((s) => s.trim()).filter(Boolean)) }))
+      .filter((ev) => ev.date || ev.event?.trim() || ev.coverage?.trim() || ev.location?.trim() || ev.services.length)
+    const activeItems = uniqueNames(events.flatMap((ev) => ev.services)).map((description) => ({ description }))
     if (activeItems.length === 0) {
-      notify('Add at least one service.', 'error')
+      notify('Add at least one service to an event.', 'error')
       return
     }
+    const extraServices = events.flatMap((ev, i) =>
+      form.extraServices
+        .filter((x) => x.event_id === ev.id)
+        .map((x) => ({ event_id: ev.id, event: ev.event?.trim() || `Event ${i + 1}`, service: x.name, extra: true }))
+    )
     if (total <= 0) {
       notify('Enter the total package amount.', 'error')
       return
@@ -319,7 +304,7 @@ export default function QuotationForm() {
         }
       }
 
-      const earliestScheduled = form.schedule
+      const earliestScheduled = events
         .map((r) => r.date)
         .filter(Boolean)
         .sort()[0]
@@ -341,7 +326,8 @@ export default function QuotationForm() {
           billing_address: form.billing_address.trim() || null,
           package_title: form.package_title.trim(),
           deliverables: splitLines(form.deliverables),
-          schedule: form.schedule.filter((r) => r.date || r.event?.trim() || r.coverage?.trim() || r.location?.trim()),
+          schedule: events,
+          service_delivery: extraServices,
           payments: form.payments
             .filter((r) => Number(r.amount) > 0)
             .map((r) => ({ ...r, amount: Number(r.amount) })),
@@ -512,79 +498,19 @@ export default function QuotationForm() {
           </div>
         </div>
 
-        {/* Items table */}
-        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-gray-300 bg-gray-100 text-gray-600 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-300">
-                <tr>
-                  <th className="w-12 border-r border-gray-300 px-3 py-2.5 text-center font-bold dark:border-gray-600">#</th>
-                  <th className="border-r border-gray-300 px-3 py-2.5 font-bold dark:border-gray-600">SERVICES</th>
-                  <th className="w-10 px-2 py-2.5 text-center" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {form.items.map((row, idx) => (
-                  <tr key={idx} className="transition-colors hover:bg-gray-50/50 dark:hover:bg-gray-700/30">
-                    <td className="border-r border-gray-200 px-2 py-1.5 text-center font-medium text-gray-500 dark:border-gray-700">
-                      {idx + 1}
-                    </td>
-                    <td className="relative border-r border-gray-200 px-2 py-1.5 dark:border-gray-700">
-                      <ItemCombobox
-                        value={row.description}
-                        onChange={(val) => updateService(idx, val)}
-                        itemsList={serviceOptions.map((name) => ({ name }))}
-                        placeholder="Select or type a service"
-                        listTitle="Saved Services"
-                        matchTitle="Matching Services"
-                        newBadge="New service"
-                        limit={30}
-                      />
-                    </td>
-                    <td className="px-2 py-1.5 text-center">
-                      <button
-                        type="button"
-                        onClick={() => removeRow(idx)}
-                        title="Delete row"
-                        className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700 dark:hover:text-red-400"
-                      >
-                        <TrashIcon width={16} height={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* Event schedule: each event carries its own services */}
+        <div className="card space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold">Event Schedule &amp; Services</h3>
+            <p className="mt-0.5 text-xs text-gray-400">Add each event, then choose the services covered in that event.</p>
           </div>
-
-          <div className="flex flex-wrap items-center gap-3 border-t border-gray-200 bg-white p-2.5 dark:border-gray-700 dark:bg-gray-800">
-            <button
-              type="button"
-              onClick={addRow}
-              className="flex items-center gap-1 rounded border border-blue-400 bg-blue-50/50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-blue-600 shadow-sm transition hover:bg-blue-100 dark:border-blue-500/50 dark:bg-blue-900/20 dark:text-blue-400"
-            >
-              <PlusIcon width={14} height={14} /> ADD SERVICE
-            </button>
-            {packages.length > 0 && (
-              <div className="ml-auto flex items-center gap-2">
-                <select
-                  value={selectedPackage}
-                  onChange={(e) => setSelectedPackage(e.target.value)}
-                  className="rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-800 shadow-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                >
-                  <option value="">Quick add from package…</option>
-                  {packages.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <button type="button" onClick={addPackage} disabled={!selectedPackage} className="btn-secondary py-1.5 text-xs">
-                  Add
-                </button>
-              </div>
-            )}
-          </div>
+          <EventScheduleEditor
+            schedule={form.schedule}
+            onChange={(schedule) => setForm((f) => ({ ...f, schedule }))}
+            suggestions={DEFAULT_SERVICES}
+            options={serviceOptions}
+            packages={packages}
+          />
         </div>
 
         <div className="card">
@@ -601,18 +527,6 @@ export default function QuotationForm() {
         </div>
 
         <div className="card space-y-3">
-          <h3 className="text-sm font-semibold">Event Schedule</h3>
-          <RowsEditor
-            rows={form.schedule}
-            columns={SCHEDULE_COLUMNS}
-            onChange={(schedule) => setForm({ ...form, schedule })}
-            emptyRow={() => ({ date: '', event: '', coverage: '', location: '' })}
-            addLabel="Add event"
-            emptyText="No events added yet."
-          />
-        </div>
-
-        <div className="card space-y-3">
           <h3 className="text-sm font-semibold">Payment Details</h3>
           <p className="-mt-2 text-xs text-gray-400">Record each amount received from the customer, e.g. an Advance first, then Part or Final payments. Shown in the PDF with a payment summary.</p>
           <RowsEditor
@@ -625,9 +539,21 @@ export default function QuotationForm() {
           />
         </div>
 
-        <div className="card space-y-3">
-          <div className="flex items-center justify-between">
+        <div className="card space-y-4">
+          <div>
             <h3 className="text-sm font-semibold">Project Delivery Status</h3>
+            <p className="mt-0.5 text-xs text-gray-400">
+              Services from each event are listed below. Use "Add extra service" for anything requested later.
+            </p>
+          </div>
+          <EventDeliveryEditor
+            schedule={form.schedule}
+            extras={form.extraServices}
+            onExtrasChange={(extraServices) => setForm((f) => ({ ...f, extraServices }))}
+            options={serviceOptions}
+          />
+          <div className="flex items-center justify-between border-t border-gray-200 pt-4 dark:border-gray-700">
+            <h4 className="text-sm font-semibold">Workflow Steps</h4>
             <button
               type="button"
               className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"

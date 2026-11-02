@@ -78,6 +78,12 @@ const S = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap' },
   chip: { fontSize: 9.5, color: BROWN, backgroundColor: CREAM, borderWidth: 0.8, borderColor: GOLD, borderRadius: 12, paddingVertical: 4, paddingHorizontal: 11, marginRight: 6, marginBottom: 6 },
 
+  eventCard: { borderWidth: 0.8, borderColor: WARM_BORDER, borderRadius: 6, marginBottom: 10 },
+  eventHead: { backgroundColor: SOFT, borderBottomWidth: 0.8, borderColor: WARM_BORDER, paddingVertical: 7, paddingHorizontal: 10, borderTopLeftRadius: 5, borderTopRightRadius: 5 },
+  eventTitle: { fontSize: 10.5, fontWeight: 700, color: BROWN },
+  eventMeta: { fontSize: 8.5, color: MUTED, marginTop: 2 },
+  eventBody: { paddingTop: 8, paddingHorizontal: 10, paddingBottom: 2 },
+
   listRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
   listDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: GOLD, marginTop: 4, marginRight: 9 },
   listText: { flex: 1, lineHeight: 1.4 },
@@ -305,6 +311,7 @@ export default function QuotationPDF({ profile = {}, quotation = {}, client = {}
   const services = items.map((it) => it.description).filter(Boolean)
   const deliverables = details.deliverables || []
   const schedule = details.schedule || []
+  const eventServices = schedule.some((ev) => (ev.services || []).length > 0)
   const payments = details.payments || []
   const terms = lines(quotation.notes)
 
@@ -420,7 +427,7 @@ export default function QuotationPDF({ profile = {}, quotation = {}, client = {}
           </View>
         </Section>
 
-        {services.length > 0 && (
+        {services.length > 0 && !eventServices && (
           <Section title="Services Included">
             <Chips items={services} />
           </Section>
@@ -432,7 +439,28 @@ export default function QuotationPDF({ profile = {}, quotation = {}, client = {}
           </Section>
         )}
 
-        {schedule.length > 0 && (
+        {schedule.length > 0 && eventServices && (
+          <Section title="Event Schedule & Services">
+            {schedule.map((ev, i) => {
+              const meta = [ev.date ? formatDate(ev.date) : '', ev.location, ev.coverage].filter(Boolean).join('  \u00b7  ')
+              return (
+                <View key={ev.id || i} style={S.eventCard} wrap={false}>
+                  <View style={S.eventHead}>
+                    <Text style={S.eventTitle}>{ev.event || `Event ${i + 1}`}</Text>
+                    {meta ? <Text style={S.eventMeta}>{meta}</Text> : null}
+                  </View>
+                  {(ev.services || []).length > 0 && (
+                    <View style={S.eventBody}>
+                      <Chips items={ev.services} />
+                    </View>
+                  )}
+                </View>
+              )
+            })}
+          </Section>
+        )}
+
+        {schedule.length > 0 && !eventServices && (
           <Section title="Event Schedule">
             <Table
               columns={[
