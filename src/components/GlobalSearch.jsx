@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { InvoiceIcon, QuoteIcon, ClientIcon } from './icons'
+import { InvoiceIcon, QuoteIcon } from './icons'
 
 // Global search across invoices, quotations and clients with a results dropdown.
 export default function GlobalSearch({ inputRef }) {
@@ -29,10 +29,9 @@ export default function GlobalSearch({ inputRef }) {
     setLoading(true)
     const handle = setTimeout(async () => {
       const like = `%${q}%`
-      const [inv, quo, cli] = await Promise.all([
+      const [inv, quo] = await Promise.all([
         supabase.from('invoices').select('id, invoice_number, client:clients(name)').ilike('invoice_number', like).limit(5),
         supabase.from('quotations').select('id, quotation_number, client:clients(name)').ilike('quotation_number', like).limit(5),
-        supabase.from('clients').select('id, name').ilike('name', like).limit(5),
       ])
       const list = [
         ...(inv.data || []).map((r) => ({
@@ -50,14 +49,6 @@ export default function GlobalSearch({ inputRef }) {
           sub: r.client?.name || '',
           to: `/quotations/${r.id}/edit`,
           icon: QuoteIcon,
-        })),
-        ...(cli.data || []).map((r) => ({
-          type: 'client',
-          id: r.id,
-          label: r.name,
-          sub: 'Client',
-          to: `/clients?q=${encodeURIComponent(r.name)}`,
-          icon: ClientIcon,
         })),
       ]
       setResults(list)
@@ -78,7 +69,7 @@ export default function GlobalSearch({ inputRef }) {
       <input
         ref={inputRef}
         className="input"
-        placeholder="Search invoices, quotes, clients…  ( / )"
+        placeholder="Search invoices, quotes…  ( / )"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => results.length && setOpen(true)}

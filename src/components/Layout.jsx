@@ -11,7 +11,6 @@ import {
   DashboardIcon,
   InvoiceIcon,
   QuoteIcon,
-  ClientIcon,
   ExpenseIcon,
   SettingsIcon,
   SunIcon,
@@ -27,7 +26,6 @@ const navItems = [
   { to: '/', label: 'Dashboard', icon: DashboardIcon, end: true },
   { to: '/invoices', label: 'Invoices', icon: InvoiceIcon },
   { to: '/quotations', label: 'Quotations', icon: QuoteIcon },
-  { to: '/clients', label: 'Clients', icon: ClientIcon },
   { to: '/expenses', label: 'Expenses', icon: ExpenseIcon },
   { to: '/settings', label: 'Business Profile', icon: SettingsIcon },
 ]

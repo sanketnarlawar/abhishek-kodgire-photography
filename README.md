@@ -64,7 +64,7 @@ src/
   components/     Reusable UI (Layout, Modal, LineItemsEditor, InvoicePDF, UpiQr, icons)
   contexts/       Theme (dark mode) and Auth providers
   lib/            Supabase client + formatting/helpers
-  pages/          Dashboard, Invoices, Quotations, Clients, Expenses, Settings
+  pages/          Dashboard, Invoices, Quotations, Expenses, Settings
 supabase/
   schema.sql      Database tables + Row Level Security
   SETUP.md        Supabase setup walkthrough
