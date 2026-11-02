@@ -14,7 +14,11 @@ export const EVENT_TYPES = [
 
 export const INVOICE_STATUSES = ['Unpaid', 'Partially Paid', 'Paid', 'Overdue']
 
-export const QUOTATION_STATUSES = ['Draft', 'Sent', 'Accepted', 'Rejected']
+export const QUOTATION_STATUSES = ['Draft', 'Approved']
+
+// Older records may carry retired statuses (Sent, Accepted, Rejected).
+export const normalizeQuotationStatus = (status) =>
+  status === 'Approved' || status === 'Accepted' ? 'Approved' : 'Draft'
 
 export const DELIVERY_STATUSES = ['Completed', 'Pending', 'In Progress', 'Awaiting Client Approval']
 
@@ -40,6 +44,8 @@ export const DEFAULT_DELIVERY_WORKFLOW = [
 ]
 
 export const PAYMENT_MODES = ['UPI', 'Cash', 'Bank Transfer', 'Card', 'Cheque']
+
+export const QUOTATION_PAYMENT_TYPES = ['Advance', 'Part Payment', 'Final Payment']
 
 export const EXPENSE_CATEGORIES = [
   'Equipment',
@@ -142,6 +148,7 @@ export function statusBadgeClass(status) {
   switch (status) {
     case 'Paid':
     case 'Accepted':
+    case 'Approved':
       return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
     case 'Partially Paid':
     case 'Sent':

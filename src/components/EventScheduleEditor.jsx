@@ -5,9 +5,8 @@ import { emptyEvent, hasService } from '../lib/eventServices'
 
 const fieldLabel = 'text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400'
 
-function ServicePicker({ services, onChange, suggestions, options, packages, previousServices }) {
+function ServicePicker({ services, onChange, suggestions, options, previousServices }) {
   const [draft, setDraft] = useState('')
-  const [packageId, setPackageId] = useState('')
 
   const add = (names) => {
     const next = [...services]
@@ -87,41 +86,13 @@ function ServicePicker({ services, onChange, suggestions, options, packages, pre
             <CopyIcon width={13} height={13} /> Copy from previous event
           </button>
         )}
-        {packages.length > 0 && (
-          <div className="ml-auto flex items-center gap-1.5">
-            <select
-              value={packageId}
-              onChange={(e) => setPackageId(e.target.value)}
-              className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-            >
-              <option value="">Add from package…</option>
-              {packages.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              disabled={!packageId}
-              onClick={() => {
-                const pkg = packages.find((p) => p.id === packageId)
-                add((pkg?.items || []).map((it) => it.description))
-                setPackageId('')
-              }}
-              className="btn-secondary px-2.5 py-1 text-xs"
-            >
-              Add
-            </button>
-          </div>
-        )}
       </div>
     </div>
   )
 }
 
 // Event cards, each holding its own list of services.
-export default function EventScheduleEditor({ schedule, onChange, suggestions, options, packages }) {
+export default function EventScheduleEditor({ schedule, onChange, suggestions, options }) {
   const update = (index, patch) => onChange(schedule.map((ev, i) => (i === index ? { ...ev, ...patch } : ev)))
   const remove = (index) => onChange(schedule.filter((_, i) => i !== index))
 
@@ -215,7 +186,6 @@ export default function EventScheduleEditor({ schedule, onChange, suggestions, o
                   onChange={(services) => update(index, { services })}
                   suggestions={suggestions}
                   options={options}
-                  packages={packages}
                   previousServices={index > 0 ? schedule[index - 1].services : []}
                 />
               </div>

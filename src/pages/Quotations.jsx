@@ -10,10 +10,26 @@ import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import { useSortPaginate } from '../lib/useSortPaginate'
 import { PlusIcon, TrashIcon, QuoteIcon, CopyIcon, ArrowUpDownIcon } from '../components/icons'
-import { formatCurrency, formatDate, quotationName, QUOTATION_STATUSES } from '../lib/format'
+import { formatCurrency, formatDate, quotationName, normalizeQuotationStatus } from '../lib/format'
+
+const receivedOf = (q) => (q.details?.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0)
+
+const balanceOf = (q) => Math.max(0, (Number(q.total) || 0) - receivedOf(q))
+
+// Draft quotations can't take payments; approved ones move Unpaid → Partially Paid → Paid.
+const PAYMENT_STATUSES = ['Draft', 'Unpaid', 'Partially Paid', 'Paid']
+
+const paymentStatusOf = (q) => {
+  if (normalizeQuotationStatus(q.status) !== 'Approved') return 'Draft'
+  const received = receivedOf(q)
+  if (received <= 0) return 'Unpaid'
+  return received >= (Number(q.total) || 0) ? 'Paid' : 'Partially Paid'
+}
 
 const getValue = (q, key) => {
   switch (key) {
+    case 'balance':
+      return balanceOf(q)
     case 'quotation_number':
       return quotationName(q, q.client).toLowerCase()
     case 'client':
@@ -27,7 +43,7 @@ const getValue = (q, key) => {
     case 'total':
       return Number(q.total) || 0
     case 'status':
-      return q.status || ''
+      return paymentStatusOf(q)
     default:
       return ''
   }
@@ -116,7 +132,7 @@ export default function Quotations() {
   const filtered = useMemo(
     () =>
       quotations.filter((q) => {
-        const matchesStatus = statusFilter === 'All' || q.status === statusFilter
+        const matchesStatus = statusFilter === 'All' || paymentStatusOf(q) === statusFilter
         const haystack = `${q.quotation_number} ${q.client?.name || ''} ${q.event_type || ''}`.toLowerCase()
         return matchesStatus && haystack.includes(search.toLowerCase())
       }),
@@ -146,14 +162,14 @@ export default function Quotations() {
         />
         <select className="input max-w-[180px]" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option>All</option>
-          {QUOTATION_STATUSES.map((s) => (
+          {PAYMENT_STATUSES.map((s) => (
             <option key={s}>{s}</option>
           ))}
         </select>
       </div>
 
       {loading ? (
-        <TableSkeleton cols={8} />
+        <TableSkeleton cols={9} />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={QuoteIcon}
@@ -183,7 +199,8 @@ export default function Quotations() {
                   <SortableTh label="Quotation Generated Date" sortKey="issue_date" state={table} onSort={table.toggleSort} />
                   <SortableTh label="Event Date" sortKey="event_date" state={table} onSort={table.toggleSort} />
                   <SortableTh label="Total" sortKey="total" state={table} onSort={table.toggleSort} className="text-right" />
-                  <SortableTh label="Status" sortKey="status" state={table} onSort={table.toggleSort} />
+                  <SortableTh label="Balance" sortKey="balance" state={table} onSort={table.toggleSort} className="text-right" />
+                  <SortableTh label="Payment Status" sortKey="status" state={table} onSort={table.toggleSort} />
                   <th className="px-4 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -201,8 +218,15 @@ export default function Quotations() {
                     <td className="px-4 py-3">{formatDate(q.issue_date)}</td>
                     <td className="px-4 py-3">{formatDate(q.event_date)}</td>
                     <td className="px-4 py-3 text-right font-medium">{formatCurrency(q.total)}</td>
+                    <td
+                      className={`px-4 py-3 text-right font-medium ${
+                        balanceOf(q) > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+                      }`}
+                    >
+                      {formatCurrency(balanceOf(q))}
+                    </td>
                     <td className="px-4 py-3">
-                      <StatusBadge status={q.status} />
+                      <StatusBadge status={paymentStatusOf(q)} />
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-3">
@@ -212,12 +236,6 @@ export default function Quotations() {
                         <Link to={`/quotations/${q.id}/edit`} className="text-sm font-medium text-brand-600 hover:underline">
                           Edit
                         </Link>
-                        <button
-                          onClick={() => navigate(`/invoices/new?fromQuotation=${q.id}`)}
-                          className="text-sm font-medium text-green-600 hover:underline"
-                        >
-                          Convert
-                        </button>
                         <button onClick={() => duplicate(q)} className="text-gray-400 hover:text-brand-600" title="Duplicate">
                           <CopyIcon width={16} height={16} />
                         </button>

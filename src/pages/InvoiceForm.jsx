@@ -762,7 +762,7 @@ export default function InvoiceForm() {
   return (
     <div className="mx-auto w-full max-w-7xl font-sans text-gray-800 dark:text-gray-100">
       {/* ── TOP HEADER / APP BAR ────────────────────────────────────────── */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-gray-700">
+      <div className="sticky top-0 z-20 -mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-[#f6f7fb]/90 px-4 py-3 backdrop-blur dark:border-gray-700 dark:bg-[#0b1020]/90 md:-mx-6 md:px-6">
         <div className="flex items-center gap-3">
           <button
             type="button"

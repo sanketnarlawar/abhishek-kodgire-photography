@@ -12,7 +12,6 @@ import {
   InvoiceIcon,
   QuoteIcon,
   ClientIcon,
-  PackageIcon,
   ExpenseIcon,
   SettingsIcon,
   SunIcon,
@@ -29,7 +28,6 @@ const navItems = [
   { to: '/invoices', label: 'Invoices', icon: InvoiceIcon },
   { to: '/quotations', label: 'Quotations', icon: QuoteIcon },
   { to: '/clients', label: 'Clients', icon: ClientIcon },
-  { to: '/packages', label: 'Packages', icon: PackageIcon },
   { to: '/expenses', label: 'Expenses', icon: ExpenseIcon },
   { to: '/settings', label: 'Business Profile', icon: SettingsIcon },
 ]
@@ -139,10 +137,10 @@ export default function Layout({ children }) {
   )
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       {/* Desktop sidebar — always dark */}
       <aside
-        className={`hidden shrink-0 flex-col border-r border-gray-800 bg-gray-900 p-4 transition-all md:flex ${collapsed ? 'w-20' : 'w-64'
+        className={`hidden h-full shrink-0 flex-col overflow-y-auto border-r border-gray-800 bg-gray-900 p-4 transition-all md:flex ${collapsed ? 'w-20' : 'w-64'
           }`}
       >
         <div className="mb-6 flex items-center justify-between">
@@ -210,8 +208,8 @@ export default function Layout({ children }) {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        <header className="flex shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
           <button
             onClick={() => setMobileOpen(true)}
             className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 md:hidden"
@@ -253,7 +251,7 @@ export default function Layout({ children }) {
 
         <main
           key={location.pathname}
-          className="app-bg flex-1 animate-fade-in overflow-x-hidden p-4 md:p-6"
+          className="app-bg min-h-0 flex-1 animate-fade-in overflow-y-auto overflow-x-hidden p-4 md:p-6"
         >
           {children}
         </main>

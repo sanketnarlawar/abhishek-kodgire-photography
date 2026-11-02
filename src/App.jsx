@@ -7,7 +7,6 @@ import SetupNeeded from './pages/SetupNeeded'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Clients from './pages/Clients'
-import Packages from './pages/Packages'
 import Expenses from './pages/Expenses'
 import Invoices from './pages/Invoices'
 import InvoiceForm from './pages/InvoiceForm'
@@ -40,7 +39,6 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
-      <Route path="/packages" element={<ProtectedRoute><Packages /></ProtectedRoute>} />
       <Route path="/expenses" element={<ProtectedRoute><Expenses /></ProtectedRoute>} />
       <Route path="/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
       <Route path="/invoices/new" element={<ProtectedRoute><InvoiceForm /></ProtectedRoute>} />

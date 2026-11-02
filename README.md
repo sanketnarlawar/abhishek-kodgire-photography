@@ -7,7 +7,6 @@ and Supabase.
 ## Features
 - 🔐 Secure owner login
 - 🧾 Invoices for photography events (Wedding, Birthday, Baby Shower, etc.)
-- 📦 Reusable **service packages** (add a whole bundle in one click)
 - 👥 Client database
 - 💰 **UPI QR code** + **Pay Now** link on every invoice
 - 📄 **PDF export** and WhatsApp **sharing**
@@ -65,7 +64,7 @@ src/
   components/     Reusable UI (Layout, Modal, LineItemsEditor, InvoicePDF, UpiQr, icons)
   contexts/       Theme (dark mode) and Auth providers
   lib/            Supabase client + formatting/helpers
-  pages/          Dashboard, Invoices, Quotations, Clients, Packages, Expenses, Settings
+  pages/          Dashboard, Invoices, Quotations, Clients, Expenses, Settings
 supabase/
   schema.sql      Database tables + Row Level Security
   SETUP.md        Supabase setup walkthrough

@@ -14,12 +14,13 @@ import { useToast } from '../contexts/ToastContext'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import {
   EVENT_TYPES,
-  QUOTATION_STATUSES,
   PAYMENT_MODES,
+  QUOTATION_PAYMENT_TYPES as PAYMENT_TYPES,
   DELIVERY_STATUSES,
   DEFAULT_DELIVERY_WORKFLOW,
   DELIVERY_WORKFLOW_OPTIONS,
   amountInWords,
+  normalizeQuotationStatus,
 } from '../lib/format'
 
 const today = () => new Date().toISOString().slice(0, 10)
@@ -49,8 +50,6 @@ const loadSchedule = (data, details) => {
   }
   return schedule
 }
-
-const PAYMENT_TYPES = ['Advance', 'Part Payment', 'Final Payment']
 
 const PAYMENT_COLUMNS = [
   { key: 'date', label: 'Date', type: 'date', width: 'w-40' },
@@ -105,7 +104,6 @@ export default function QuotationForm() {
 
   const [clients, setClients] = useState([])
   const [customerName, setCustomerName] = useState('')
-  const [packages, setPackages] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [clientModalOpen, setClientModalOpen] = useState(false)
@@ -137,13 +135,11 @@ export default function QuotationForm() {
 
   useEffect(() => {
     const init = async () => {
-      const [{ data: clientData }, { data: pkgData }, { data: profile }] = await Promise.all([
+      const [{ data: clientData }, { data: profile }] = await Promise.all([
         supabase.from('clients').select('*').order('name'),
-        supabase.from('packages').select('*').order('name'),
         supabase.from('business_profile').select('quotation_prefix').limit(1).maybeSingle(),
       ])
       setClients(clientData || [])
-      setPackages(pkgData || [])
       const prefix = profile?.quotation_prefix || 'QT'
 
       if (isEdit) {
@@ -163,7 +159,7 @@ export default function QuotationForm() {
             issue_date: data.issue_date || today(),
             total: data.total || '',
             notes: data.notes || '',
-            status: data.status || 'Draft',
+            status: normalizeQuotationStatus(data.status),
             package_title: details.package_title || '',
             deliverables: (details.deliverables || []).join('\n'),
             schedule: loadSchedule(data, details),
@@ -369,8 +365,8 @@ export default function QuotationForm() {
       )}
 
       <form onSubmit={save} className="space-y-4">
-        {/* Top bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-gray-700">
+        {/* Top bar — stays pinned while the form scrolls */}
+        <div className="sticky top-0 z-20 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-[#f6f7fb]/90 px-4 py-3 backdrop-blur dark:border-gray-700 dark:bg-[#0b1020]/90 md:-mx-6 md:px-6">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -509,7 +505,6 @@ export default function QuotationForm() {
             onChange={(schedule) => setForm((f) => ({ ...f, schedule }))}
             suggestions={DEFAULT_SERVICES}
             options={serviceOptions}
-            packages={packages}
           />
         </div>
 
@@ -526,18 +521,20 @@ export default function QuotationForm() {
           </div>
         </div>
 
-        <div className="card space-y-3">
-          <h3 className="text-sm font-semibold">Payment Details</h3>
-          <p className="-mt-2 text-xs text-gray-400">Record each amount received from the customer, e.g. an Advance first, then Part or Final payments. Shown in the PDF with a payment summary.</p>
-          <RowsEditor
-            rows={form.payments}
-            columns={PAYMENT_COLUMNS}
-            onChange={(payments) => setForm({ ...form, payments })}
-            emptyRow={() => ({ date: today(), mode: 'UPI', amount: '', type: '' })}
-            addLabel="Add payment"
-            emptyText="No payments recorded."
-          />
-        </div>
+        {(form.status === 'Approved' || form.payments.length > 0) && (
+          <div className="card space-y-3">
+            <h3 className="text-sm font-semibold">Payment Details</h3>
+            <p className="-mt-2 text-xs text-gray-400">Record each amount received from the customer, e.g. an Advance first, then Part or Final payments. Shown in the PDF with a payment summary.</p>
+            <RowsEditor
+              rows={form.payments}
+              columns={PAYMENT_COLUMNS}
+              onChange={(payments) => setForm({ ...form, payments })}
+              emptyRow={() => ({ date: today(), mode: 'UPI', amount: '', type: '' })}
+              addLabel="Add payment"
+              emptyText="No payments recorded."
+            />
+          </div>
+        )}
 
         <div className="card space-y-4">
           <div>
@@ -594,20 +591,6 @@ export default function QuotationForm() {
           </div>
 
           <div className="space-y-3 rounded-lg border border-gray-300 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800 lg:col-span-4">
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
-                Status
-              </label>
-              <select
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value })}
-                className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-800 shadow-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-              >
-                {QUOTATION_STATUSES.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </select>
-            </div>
             <div>
               <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
                 PDF Cover Title

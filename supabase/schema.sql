@@ -35,17 +35,6 @@ create table if not exists public.clients (
   created_at timestamptz default now()
 );
 
--- ---------- Service Packages ----------
-create table if not exists public.packages (
-  id uuid primary key default gen_random_uuid(),
-  owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
-  name text not null,
-  event_type text,
-  items jsonb default '[]'::jsonb,
-  default_price numeric default 0,
-  created_at timestamptz default now()
-);
-
 -- ---------- Invoices ----------
 create table if not exists public.invoices (
   id uuid primary key default gen_random_uuid(),
@@ -125,7 +114,6 @@ create table if not exists public.expenses (
 
 alter table public.business_profile enable row level security;
 alter table public.clients          enable row level security;
-alter table public.packages         enable row level security;
 alter table public.invoices         enable row level security;
 alter table public.quotations       enable row level security;
 alter table public.payments         enable row level security;
@@ -136,7 +124,7 @@ declare
   t text;
 begin
   foreach t in array array[
-    'business_profile','clients','packages','invoices','quotations','payments','expenses'
+    'business_profile','clients','invoices','quotations','payments','expenses'
   ]
   loop
     execute format('drop policy if exists "owner_all" on public.%I;', t);
