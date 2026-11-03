@@ -4,6 +4,7 @@ import { pdf } from '@react-pdf/renderer'
 import { supabase } from '../lib/supabase'
 import PageHeader from '../components/PageHeader'
 import QuotationPDF from '../components/QuotationPDF'
+import QuotationInvoicePDF, { quotationInvoiceName } from '../components/QuotationInvoicePDF'
 import StatusBadge from '../components/StatusBadge'
 import { PageLoader } from '../components/Loaders'
 import Modal from '../components/Modal'
@@ -34,6 +35,9 @@ export default function QuotationView() {
   const [pdfBlob, setPdfBlob] = useState(null)
   const [pdfUrl, setPdfUrl] = useState('')
   const [pdfError, setPdfError] = useState('')
+  const [invBlob, setInvBlob] = useState(null)
+  const [invUrl, setInvUrl] = useState('')
+  const [previewDoc, setPreviewDoc] = useState('quotation')
   const [busy, setBusy] = useState(false)
   const [payModalOpen, setPayModalOpen] = useState(false)
   const [payForm, setPayForm] = useState({ amount: '', date: today(), mode: 'UPI', type: 'Advance' })
@@ -88,7 +92,34 @@ export default function QuotationView() {
     }
   }, [quotation, profile])
 
+  // The invoice is generated from the quotation once it is approved.
+  useEffect(() => {
+    if (!quotation || !profile || normalizeQuotationStatus(quotation.status) !== 'Approved') {
+      setInvBlob(null)
+      setInvUrl('')
+      setPreviewDoc('quotation')
+      return
+    }
+    let cancelled = false
+    let url = ''
+    setInvBlob(null)
+    pdf(<QuotationInvoicePDF profile={profile} quotation={quotation} client={quotation.client || {}} />)
+      .toBlob()
+      .then((blob) => {
+        if (cancelled) return
+        url = URL.createObjectURL(blob)
+        setInvBlob(blob)
+        setInvUrl(url)
+      })
+      .catch((err) => console.error('Invoice PDF failed:', err))
+    return () => {
+      cancelled = true
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [quotation, profile])
+
   const fileName = `${quotationName(quotation, quotation?.client)}.pdf`
+  const invoiceFileName = `${quotationInvoiceName(quotation, profile, quotation?.client)}.pdf`
 
   const downloadPdf = () => {
     if (!pdfBlob) return
@@ -99,18 +130,27 @@ export default function QuotationView() {
     notify('PDF downloaded')
   }
 
-  const shareWhatsApp = async () => {
-    if (!pdfBlob) return
+  const downloadInvoice = () => {
+    if (!invBlob) return
+    const a = document.createElement('a')
+    a.href = invUrl
+    a.download = invoiceFileName
+    a.click()
+    notify('Invoice downloaded')
+  }
+
+  const sharePdf = async (blob, name) => {
+    if (!blob) return
     setBusy(true)
     try {
-      const file = new File([pdfBlob], fileName, { type: 'application/pdf' })
+      const file = new File([blob], name, { type: 'application/pdf' })
       if (!navigator.canShare?.({ files: [file] })) {
         notify('This browser cannot share files. Try Chrome or Edge.', 'error')
         return
       }
       await navigator.share({ files: [file] })
     } catch (err) {
-      if (err.name !== 'AbortError') notify(err.message || 'Could not share the quotation PDF', 'error')
+      if (err.name !== 'AbortError') notify(err.message || 'Could not share the PDF', 'error')
     } finally {
       setBusy(false)
     }
@@ -204,7 +244,7 @@ export default function QuotationView() {
         title={quotationName(quotation, quotation.client)}
         subtitle={<StatusBadge status={status} />}
         action={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2">
             <div
               role="group"
               aria-label="Quotation status"
@@ -232,11 +272,25 @@ export default function QuotationView() {
               Edit
             </Link>
             <button onClick={downloadPdf} disabled={!pdfBlob} className="btn-secondary">
-              {pdfBlob ? 'Download PDF' : 'Preparing PDF…'}
+              {pdfBlob ? 'Download Quotation' : 'Preparing PDF…'}
             </button>
-            <button onClick={shareWhatsApp} disabled={busy || !pdfBlob} className="btn-secondary">
-              Send on WhatsApp
+            <button onClick={() => sharePdf(pdfBlob, fileName)} disabled={busy || !pdfBlob} className="btn-secondary">
+              Send Quotation on WhatsApp
             </button>
+            {isApproved && (
+              <>
+                <button onClick={downloadInvoice} disabled={!invBlob} className="btn-secondary">
+                  {invBlob ? 'Download Invoice' : 'Preparing Invoice…'}
+                </button>
+                <button
+                  onClick={() => sharePdf(invBlob, invoiceFileName)}
+                  disabled={busy || !invBlob}
+                  className="btn-secondary"
+                >
+                  Send Invoice on WhatsApp
+                </button>
+              </>
+            )}
             <button onClick={remove} className="btn-danger">
               Delete
             </button>
@@ -246,8 +300,36 @@ export default function QuotationView() {
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="card max-w-4xl p-2">
+          {isApproved && (
+            <div className="mb-2 inline-flex rounded-lg border border-gray-300 p-0.5 text-sm font-medium dark:border-gray-600">
+              {[
+                ['quotation', 'Quotation'],
+                ['invoice', 'Invoice'],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setPreviewDoc(key)}
+                  aria-pressed={previewDoc === key}
+                  className={`rounded-md px-3 py-1 transition ${
+                    previewDoc === key
+                      ? 'bg-brand-600 text-white shadow-sm'
+                      : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           {pdfError ? (
             <p className="p-6 text-center text-sm text-red-600">{pdfError}</p>
+          ) : previewDoc === 'invoice' && isApproved ? (
+            invUrl && invBlob ? (
+              <iframe title="Invoice preview" src={`${invUrl}#toolbar=0&navpanes=0&view=FitH`} className="h-[80vh] w-full rounded" />
+            ) : (
+              <p className="p-6 text-center text-sm text-gray-500">Preparing invoice preview…</p>
+            )
           ) : pdfUrl && pdfBlob ? (
             <iframe title="Quotation preview" src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH`} className="h-[80vh] w-full rounded" />
           ) : (
