@@ -10,6 +10,7 @@ import { TableSkeleton } from '../components/Loaders'
 import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import { useSortPaginate } from '../lib/useSortPaginate'
+import { getSavedInvoiceFilters, saveInvoiceFilters } from '../lib/invoiceFilters'
 import { downloadCsv } from '../lib/csv'
 import { PlusIcon, InvoiceIcon, WalletIcon, TrashIcon, ArrowUpDownIcon, CalendarIcon } from '../components/icons'
 import { formatCurrency, formatDate, formatTime, INVOICE_STATUSES } from '../lib/format'
@@ -77,19 +78,29 @@ export default function Invoices() {
   const confirm = useConfirm()
   const [invoices, setInvoices] = useState([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('All')
-  const [dateFilter, setDateFilter] = useState('today')
-  const [previousDateFilter, setPreviousDateFilter] = useState('today')
-  const [selectedDay, setSelectedDay] = useState('')
+  const [search, setSearch] = useState(() => getSavedInvoiceFilters()?.search ?? '')
+  const [statusFilter, setStatusFilter] = useState(() => getSavedInvoiceFilters()?.statusFilter ?? 'All')
+  const [dateFilter, setDateFilter] = useState(() => getSavedInvoiceFilters()?.dateFilter ?? 'all')
+  const [previousDateFilter, setPreviousDateFilter] = useState(
+    () => getSavedInvoiceFilters()?.previousDateFilter ?? 'all'
+  )
+  const [selectedDay, setSelectedDay] = useState(() => getSavedInvoiceFilters()?.selectedDay ?? '')
   const [appliedCustomRange, setAppliedCustomRange] = useState(() => {
+    const saved = getSavedInvoiceFilters()?.appliedCustomRange
+    if (saved) return saved
     const todayStr = formatLocalYMD(new Date())
     return { start: todayStr, end: todayStr }
   })
   const [draftCustomRange, setDraftCustomRange] = useState(() => {
+    const saved = getSavedInvoiceFilters()?.appliedCustomRange
+    if (saved) return saved
     const todayStr = formatLocalYMD(new Date())
     return { start: todayStr, end: todayStr }
   })
+
+  useEffect(() => {
+    saveInvoiceFilters({ search, statusFilter, dateFilter, previousDateFilter, selectedDay, appliedCustomRange })
+  }, [search, statusFilter, dateFilter, previousDateFilter, selectedDay, appliedCustomRange])
 
   const handleDropdownChange = (newVal) => {
     if (newVal === 'custom') {
@@ -123,8 +134,8 @@ export default function Invoices() {
     if (previousDateFilter && previousDateFilter !== 'custom') {
       setDateFilter(previousDateFilter)
     } else {
-      setDateFilter('today')
-      setPreviousDateFilter('today')
+      setDateFilter('all')
+      setPreviousDateFilter('all')
     }
   }
 

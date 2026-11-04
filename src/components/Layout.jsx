@@ -4,6 +4,7 @@ import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useProfile } from '../contexts/ProfileContext'
 import GlobalSearch from './GlobalSearch'
+import { clearSavedInvoiceFilters } from '../lib/invoiceFilters'
 import logoBlack from '../images/logo-black.png'
 import logoWhite from '../images/logo-white.png'
 import {
@@ -54,6 +55,11 @@ export default function Layout({ children }) {
 
   useEffect(() => {
     setMobileOpen(false)
+  }, [location.pathname])
+
+  // Invoice list filters survive only while moving within /invoices pages.
+  useEffect(() => {
+    if (!location.pathname.startsWith('/invoices')) clearSavedInvoiceFilters()
   }, [location.pathname])
 
   // Keyboard shortcuts: "/" focuses search, "n" opens a new invoice.

@@ -18,7 +18,7 @@ import { useTheme } from '../contexts/ThemeContext'
 import { useProfile } from '../contexts/ProfileContext'
 import { formatCurrency, formatDate } from '../lib/format'
 import { IMAGES } from '../lib/images'
-import { InvoiceIcon, WalletIcon, ClockIcon, TrendingUpIcon, CalendarIcon } from '../components/icons'
+import { InvoiceIcon, WalletIcon, ClockIcon, CalendarIcon } from '../components/icons'
 
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -97,7 +97,7 @@ const TONES = {
   },
 }
 
-function StatCard({ label, value, icon: Icon, tone = 'indigo' }) {
+function StatCard({ label, value, icon: Icon, tone = 'indigo', hint }) {
   const t = TONES[tone]
   return (
     <div className={`card flex items-center gap-4 ${t.card}`}>
@@ -105,10 +105,11 @@ function StatCard({ label, value, icon: Icon, tone = 'indigo' }) {
         <Icon width={24} height={24} />
       </div>
       <div className="min-w-0">
-        <p className="truncate text-sm text-gray-500 dark:text-gray-400">{label}</p>
+        <p className="truncate text-sm text-gray-500 dark:text-gray-400" title={label}>{label}</p>
         <p className={`mt-0.5 text-2xl font-bold ${t.value}`}>
           <CountUp value={value} format={formatCurrency} />
         </p>
+        {hint && <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{hint}</p>}
       </div>
     </div>
   )
@@ -274,9 +275,19 @@ export default function Dashboard() {
   const stats = useMemo(() => {
     const periodInvoices = invoices.filter((i) => isDateInFilter(i.issue_date))
     const invoiced = periodInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0)
-    const received = payments
-      .filter((p) => isDateInFilter(p.payment_date))
-      .reduce((s, p) => s + (Number(p.amount) || 0), 0)
+    const issueDateById = {}
+    invoices.forEach((i) => { issueDateById[i.id] = i.issue_date })
+    let receivedCurrent = 0
+    let receivedPast = 0
+    payments.forEach((p) => {
+      if (!isDateInFilter(p.payment_date)) return
+      const amt = Number(p.amount) || 0
+      // Payments on invoices issued before the selected period count as past pending.
+      const issued = p.invoice_id ? issueDateById[p.invoice_id] : null
+      if (issued && !isDateInFilter(issued)) receivedPast += amt
+      else receivedCurrent += amt
+    })
+    const received = receivedCurrent + receivedPast
     const expensesTotal = expenses
       .filter((e) => isDateInFilter(e.expense_date))
       .reduce((s, e) => s + (Number(e.amount) || 0), 0)
@@ -287,6 +298,17 @@ export default function Dashboard() {
       if (!p.invoice_id) return
       paidByInvoice[p.invoice_id] = (paidByInvoice[p.invoice_id] || 0) + (Number(p.amount) || 0)
     })
+    // Paid after the period ended, so it is already deducted from pending below.
+    const periodInvoiceIds = new Set(periodInvoices.map((i) => i.id))
+    const paidAfterPeriod = payments
+      .filter(
+        (p) =>
+          p.payment_date &&
+          periodInvoiceIds.has(p.invoice_id) &&
+          !isDateInFilter(p.payment_date) &&
+          p.payment_date.slice(0, 10) > issueDateById[p.invoice_id].slice(0, 10)
+      )
+      .reduce((s, p) => s + (Number(p.amount) || 0), 0)
     const pending = periodInvoices.reduce(
       (s, i) => s + Math.max(0, (Number(i.total) || 0) - (paidByInvoice[i.id] || 0)),
       0
@@ -295,8 +317,10 @@ export default function Dashboard() {
     return {
       invoiced,
       received,
+      receivedCurrent,
+      receivedPast,
+      paidAfterPeriod,
       expensesTotal,
-      profit: received - expensesTotal,
       pending,
     }
   }, [invoices, payments, expenses, isDateInFilter])
@@ -489,9 +513,15 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label={`Invoiced · ${activeRangeLabel}`} value={stats.invoiced} icon={InvoiceIcon} tone="indigo" />
-        <StatCard label={`Received · ${activeRangeLabel}`} value={stats.received} icon={WalletIcon} tone="green" />
-        <StatCard label="Pending payments" value={stats.pending} icon={ClockIcon} tone="amber" />
-        <StatCard label={`Profit · ${activeRangeLabel}`} value={stats.profit} icon={TrendingUpIcon} tone={stats.profit < 0 ? 'rose' : 'green'} />
+        <StatCard label={`Received on new invoices · ${activeRangeLabel}`} value={stats.receivedCurrent} icon={WalletIcon} tone="green" />
+        <StatCard label={`Received on past invoices · ${activeRangeLabel}`} value={stats.receivedPast} icon={WalletIcon} tone="green" />
+        <StatCard
+          label="Pending payments"
+          value={stats.pending}
+          icon={ClockIcon}
+          tone="amber"
+          hint={stats.paidAfterPeriod > 0 ? `After ${formatCurrency(stats.paidAfterPeriod)} received later` : undefined}
+        />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -500,8 +530,7 @@ export default function Dashboard() {
             <div>
               <h3 className="font-semibold">Monthly Income &amp; Expenses — {selectedYear}</h3>
               <p className="text-xs text-gray-500">
-                Income {formatCurrency(yearTotals.income)} · Expenses {formatCurrency(yearTotals.expenses)} · Profit{' '}
-                {formatCurrency(yearTotals.income - yearTotals.expenses)}
+                Income {formatCurrency(yearTotals.income)} · Expenses {formatCurrency(yearTotals.expenses)}
               </p>
             </div>
             <select
