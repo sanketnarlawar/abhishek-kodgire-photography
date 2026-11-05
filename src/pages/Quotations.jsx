@@ -10,7 +10,7 @@ import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import { useSortPaginate } from '../lib/useSortPaginate'
 import { PlusIcon, TrashIcon, QuoteIcon, CopyIcon, ArrowUpDownIcon } from '../components/icons'
-import { formatCurrency, formatDate, quotationName, normalizeQuotationStatus } from '../lib/format'
+import { formatCurrency, formatDate, formatTime, quotationName, normalizeQuotationStatus } from '../lib/format'
 
 const receivedOf = (q) => (q.details?.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0)
 
@@ -37,7 +37,7 @@ const getValue = (q, key) => {
     case 'event_type':
       return (q.event_type || '').toLowerCase()
     case 'issue_date':
-      return q.issue_date || ''
+      return `${q.issue_date || ''}|${q.created_at || ''}`
     case 'event_date':
       return q.event_date || ''
     case 'total':
@@ -76,6 +76,7 @@ export default function Quotations() {
       .from('quotations')
       .select('*, client:clients(name)')
       .order('issue_date', { ascending: false })
+      .order('created_at', { ascending: false })
       .then(({ data }) => {
         setQuotations(data || [])
         setLoading(false)
@@ -215,7 +216,10 @@ export default function Quotations() {
                     </td>
                     <td className="px-4 py-3">{q.client?.name || '-'}</td>
                     <td className="px-4 py-3">{q.event_type || '-'}</td>
-                    <td className="px-4 py-3">{formatDate(q.issue_date)}</td>
+                    <td className="px-4 py-3">
+                      <div>{formatDate(q.issue_date)}</div>
+                      {q.created_at && <div className="text-xs text-gray-400 dark:text-gray-500">{formatTime(q.created_at)}</div>}
+                    </td>
                     <td className="px-4 py-3">{formatDate(q.event_date)}</td>
                     <td className="px-4 py-3 text-right font-medium">{formatCurrency(q.total)}</td>
                     <td

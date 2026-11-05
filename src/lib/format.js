@@ -92,6 +92,18 @@ export function quotationName(quotation, client) {
   return name || quotation.quotation_number || 'Quotation'
 }
 
+// Invoice number mirrors the quotation number, e.g. QT-2026-001 -> INV-2026-001.
+export function quotationInvoiceNumber(quotation, profile) {
+  const prefix = profile?.invoice_prefix || 'INV'
+  const number = quotation?.quotation_number || ''
+  return number.includes('-') ? number.replace(/^[^-]+/, prefix) : number ? `${prefix}-${number}` : prefix
+}
+
+export function quotationInvoiceName(quotation, profile, client) {
+  const who = (client?.name || '').replace(/[\\/:*?"<>|]+/g, ' ').trim()
+  return [quotationInvoiceNumber(quotation, profile), who].filter(Boolean).join(' - ') || 'Invoice'
+}
+
 export function formatTime(value) {
   if (!value) return ''
   const d = new Date(value)

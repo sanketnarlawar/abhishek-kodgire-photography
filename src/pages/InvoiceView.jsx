@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import QRCode from 'qrcode'
-import { pdf } from '@react-pdf/renderer'
 import { supabase } from '../lib/supabase'
 import PageHeader from '../components/PageHeader'
 import Modal from '../components/Modal'
 import UpiQr from '../components/UpiQr'
-import InvoicePDF from '../components/InvoicePDF'
 import StatusBadge from '../components/StatusBadge'
-import { PageLoader } from '../components/Loaders'
+import { PageLoader, Spinner } from '../components/Loaders'
+import { buildPdfBlob as buildPdf, preloadPdf } from '../lib/pdfBuilder'
 import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import { TrashIcon } from '../components/icons'
@@ -66,6 +65,10 @@ export default function InvoiceView() {
   useEffect(() => {
     load()
   }, [id])
+
+  useEffect(() => {
+    preloadPdf('invoice')
+  }, [])
 
   // Clear the hand-off flag so a refresh doesn't show the prompt again.
   useEffect(() => {
@@ -169,9 +172,7 @@ export default function InvoiceView() {
         qrDataUrl = ''
       }
     }
-    return pdf(
-      <InvoicePDF profile={profile} invoice={invoice} client={client} qrDataUrl={qrDataUrl} payments={payments} />
-    ).toBlob()
+    return buildPdf('invoice', { profile, invoice, client, qrDataUrl, payments })
   }
 
   const saveBlob = (blob) => {
@@ -260,10 +261,22 @@ export default function InvoiceView() {
               Edit
             </Link>
             <button onClick={downloadPdf} disabled={downloading} className="btn-secondary">
-              {downloading ? 'Preparing…' : 'Download PDF'}
+              {downloading ? (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner size={14} /> Preparing…
+                </span>
+              ) : (
+                'Download PDF'
+              )}
             </button>
             <button onClick={shareWhatsApp} disabled={downloading || !pdfBlob} className="btn-secondary">
-              {pdfBlob ? 'Send on WhatsApp' : 'Preparing PDF…'}
+              {pdfBlob ? (
+                'Send on WhatsApp'
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner size={14} /> Preparing PDF…
+                </span>
+              )}
             </button>
             <button onClick={sendWhatsAppText} className="btn-secondary">
               WhatsApp Message
@@ -281,7 +294,13 @@ export default function InvoiceView() {
           <span>Invoice saved. Send it to {client?.name || 'the customer'} on WhatsApp?</span>
           <div className="flex gap-2">
             <button onClick={shareWhatsApp} disabled={downloading || !pdfBlob} className="btn-primary">
-              {pdfBlob ? 'Send on WhatsApp' : 'Preparing PDF…'}
+              {pdfBlob ? (
+                'Send on WhatsApp'
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner size={14} /> Preparing PDF…
+                </span>
+              )}
             </button>
             <button onClick={() => setShowWhatsAppPrompt(false)} className="btn-secondary">
               Not now

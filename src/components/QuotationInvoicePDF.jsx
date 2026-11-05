@@ -1,5 +1,5 @@
 import { Document, Page, Text, View, Image, Font, StyleSheet } from '@react-pdf/renderer'
-import { amountInWords, formatDate } from '../lib/format'
+import { amountInWords, formatDate, quotationInvoiceName, quotationInvoiceNumber } from '../lib/format'
 import logoBlack from '../images/logo-black.png'
 import notoRegular from '../fonts/NotoSans-Regular.ttf'
 import notoBold from '../fonts/NotoSans-Bold.ttf'
@@ -21,18 +21,6 @@ const BORDER = '#e5e7eb'
 const money = (n) => `\u20b9 ${(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`
 const fmtDate = (d) => (d ? formatDate(d).replace(/ /g, '-') : '-')
 const lines = (text) => (text || '').split('\n').map((l) => l.trim()).filter(Boolean)
-
-// Invoice number mirrors the quotation number, e.g. QT-2026-001 -> INV-2026-001.
-export function quotationInvoiceNumber(quotation, profile) {
-  const prefix = profile?.invoice_prefix || 'INV'
-  const number = quotation?.quotation_number || ''
-  return number.includes('-') ? number.replace(/^[^-]+/, prefix) : number ? `${prefix}-${number}` : prefix
-}
-
-export function quotationInvoiceName(quotation, profile, client) {
-  const who = (client?.name || '').replace(/[\\/:*?"<>|]+/g, ' ').trim()
-  return [quotationInvoiceNumber(quotation, profile), who].filter(Boolean).join(' - ') || 'Invoice'
-}
 
 const S = StyleSheet.create({
   page: { padding: 28, fontSize: 9, color: '#1f2937', fontFamily: 'NotoSans', backgroundColor: '#ffffff' },

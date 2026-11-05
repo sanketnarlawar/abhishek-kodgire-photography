@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
+import { getLogoDataUrl } from '../lib/logoCache'
 
 const ProfileContext = createContext({ profile: null, loading: true, refresh: async () => {} })
 
@@ -24,6 +25,11 @@ export function ProfileProvider({ children }) {
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  // Cache the logo locally so PDF builds don't wait on it.
+  useEffect(() => {
+    if (profile?.logo_url) getLogoDataUrl(profile.logo_url)
+  }, [profile?.logo_url])
 
   return (
     <ProfileContext.Provider value={{ profile, loading, refresh }}>

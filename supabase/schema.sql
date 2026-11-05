@@ -71,8 +71,24 @@ create table if not exists public.quotations (
   notes text,
   status text default 'Draft',
   details jsonb default '{}'::jsonb,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  updated_at timestamptz
 );
+
+create or replace function public.set_quotation_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists quotations_set_updated_at on public.quotations;
+create trigger quotations_set_updated_at
+  before update on public.quotations
+  for each row execute function public.set_quotation_updated_at();
 
 -- ---------- Payments ----------
 create table if not exists public.payments (

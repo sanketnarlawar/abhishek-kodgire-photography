@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { pdf } from '@react-pdf/renderer'
 import { supabase } from '../lib/supabase'
 import PageHeader from '../components/PageHeader'
-import QuotationPDF from '../components/QuotationPDF'
-import QuotationInvoicePDF, { quotationInvoiceName } from '../components/QuotationInvoicePDF'
+import { buildPdfBlob, preloadPdf } from '../lib/pdfBuilder'
 import StatusBadge from '../components/StatusBadge'
-import { PageLoader } from '../components/Loaders'
+import { PageLoader, Spinner } from '../components/Loaders'
 import Modal from '../components/Modal'
 import DateField from '../components/DateField'
 import { TrashIcon } from '../components/icons'
@@ -14,8 +12,10 @@ import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import {
   quotationName,
+  quotationInvoiceName,
   formatCurrency,
   formatDate,
+  formatTime,
   normalizeQuotationStatus,
   PAYMENT_MODES,
   QUOTATION_PAYMENT_TYPES,
@@ -67,54 +67,53 @@ export default function QuotationView() {
     load()
   }, [id])
 
-  // Built once the data is loaded; also feeds the preview and the share sheet.
+  // Warm the renderer and fonts while the data is still loading.
+  useEffect(() => {
+    preloadPdf('quotation')
+  }, [])
+
+  // The invoice builds only after the quotation is ready so the preview isn't delayed.
   useEffect(() => {
     if (!quotation || !profile) return
     let cancelled = false
-    let url = ''
+    const urls = []
+    const approved = normalizeQuotationStatus(quotation.status) === 'Approved'
+    const props = { profile, quotation, client: quotation.client || {} }
     setPdfBlob(null)
     setPdfError('')
-    pdf(<QuotationPDF profile={profile} quotation={quotation} client={quotation.client || {}} />)
-      .toBlob()
-      .then((blob) => {
+    setInvBlob(null)
+    setInvUrl('')
+    if (!approved) setPreviewDoc('quotation')
+
+    const run = async () => {
+      try {
+        const blob = await buildPdfBlob('quotation', props)
         if (cancelled) return
-        url = URL.createObjectURL(blob)
+        const url = URL.createObjectURL(blob)
+        urls.push(url)
         setPdfBlob(blob)
         setPdfUrl(url)
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error('Quotation PDF failed:', err)
         if (!cancelled) setPdfError('Could not build the PDF preview.')
-      })
-    return () => {
-      cancelled = true
-      if (url) URL.revokeObjectURL(url)
-    }
-  }, [quotation, profile])
-
-  // The invoice is generated from the quotation once it is approved.
-  useEffect(() => {
-    if (!quotation || !profile || normalizeQuotationStatus(quotation.status) !== 'Approved') {
-      setInvBlob(null)
-      setInvUrl('')
-      setPreviewDoc('quotation')
-      return
-    }
-    let cancelled = false
-    let url = ''
-    setInvBlob(null)
-    pdf(<QuotationInvoicePDF profile={profile} quotation={quotation} client={quotation.client || {}} />)
-      .toBlob()
-      .then((blob) => {
+        return
+      }
+      if (!approved) return
+      try {
+        const blob = await buildPdfBlob('quotationInvoice', props)
         if (cancelled) return
-        url = URL.createObjectURL(blob)
+        const url = URL.createObjectURL(blob)
+        urls.push(url)
         setInvBlob(blob)
         setInvUrl(url)
-      })
-      .catch((err) => console.error('Invoice PDF failed:', err))
+      } catch (err) {
+        console.error('Invoice PDF failed:', err)
+      }
+    }
+    run()
     return () => {
       cancelled = true
-      if (url) URL.revokeObjectURL(url)
+      urls.forEach((u) => URL.revokeObjectURL(u))
     }
   }, [quotation, profile])
 
@@ -163,7 +162,7 @@ export default function QuotationView() {
       notify(error.message || 'Could not save payment', 'error')
       return false
     }
-    setQuotation((q) => ({ ...q, details }))
+    setQuotation((q) => ({ ...q, details, updated_at: new Date().toISOString() }))
     return true
   }
 
@@ -174,7 +173,7 @@ export default function QuotationView() {
       notify(error.message || 'Could not update status', 'error')
       return
     }
-    setQuotation((q) => ({ ...q, status: next }))
+    setQuotation((q) => ({ ...q, status: next, updated_at: new Date().toISOString() }))
     notify(`Quotation marked ${next}`)
   }
 
@@ -242,7 +241,16 @@ export default function QuotationView() {
       <PageHeader
         backTo="/quotations"
         title={quotationName(quotation, quotation.client)}
-        subtitle={<StatusBadge status={status} />}
+        subtitle={
+          <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+            <StatusBadge status={status} />
+            {quotation.updated_at && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                Last edited {formatDate(quotation.updated_at)}, {formatTime(quotation.updated_at)}
+              </span>
+            )}
+          </span>
+        }
         action={
           <div className="flex w-full flex-wrap items-center gap-2">
             <div
@@ -272,7 +280,13 @@ export default function QuotationView() {
               Edit
             </Link>
             <button onClick={downloadPdf} disabled={!pdfBlob} className="btn-secondary">
-              {pdfBlob ? 'Download Quotation' : 'Preparing PDF…'}
+              {pdfBlob ? (
+                'Download Quotation'
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner size={14} /> Preparing PDF…
+                </span>
+              )}
             </button>
             <button onClick={() => sharePdf(pdfBlob, fileName)} disabled={busy || !pdfBlob} className="btn-secondary">
               Send Quotation on WhatsApp
@@ -280,7 +294,13 @@ export default function QuotationView() {
             {isApproved && (
               <>
                 <button onClick={downloadInvoice} disabled={!invBlob} className="btn-secondary">
-                  {invBlob ? 'Download Invoice' : 'Preparing Invoice…'}
+                  {invBlob ? (
+                    'Download Invoice'
+                  ) : (
+                    <span className="inline-flex items-center gap-2">
+                      <Spinner size={14} /> Preparing Invoice…
+                    </span>
+                  )}
                 </button>
                 <button
                   onClick={() => sharePdf(invBlob, invoiceFileName)}
@@ -328,12 +348,12 @@ export default function QuotationView() {
             invUrl && invBlob ? (
               <iframe title="Invoice preview" src={`${invUrl}#toolbar=0&navpanes=0&view=FitH`} className="h-[80vh] w-full rounded" />
             ) : (
-              <p className="p-6 text-center text-sm text-gray-500">Preparing invoice preview…</p>
+              <PageLoader label="Preparing invoice preview…" />
             )
           ) : pdfUrl && pdfBlob ? (
             <iframe title="Quotation preview" src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH`} className="h-[80vh] w-full rounded" />
           ) : (
-            <p className="p-6 text-center text-sm text-gray-500">Preparing PDF preview…</p>
+            <PageLoader label="Preparing PDF preview…" />
           )}
         </div>
 
