@@ -20,9 +20,9 @@ import {
   PAYMENT_MODES,
   QUOTATION_PAYMENT_TYPES,
   QUOTATION_STATUSES,
+  today,
 } from '../lib/format'
 
-const today = () => new Date().toISOString().slice(0, 10)
 
 export default function QuotationView() {
   const { id } = useParams()

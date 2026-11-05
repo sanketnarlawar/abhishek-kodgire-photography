@@ -1,5 +1,5 @@
 import { Document, Page, Text, View, Image, Font, StyleSheet } from '@react-pdf/renderer'
-import { amountInWords, formatDate, quotationInvoiceName, quotationInvoiceNumber } from '../lib/format'
+import { amountInWords, formatDate, quotationInvoiceName, quotationInvoiceNumber, today } from '../lib/format'
 import logoBlack from '../images/logo-black.png'
 import notoRegular from '../fonts/NotoSans-Regular.ttf'
 import notoBold from '../fonts/NotoSans-Bold.ttf'
@@ -141,7 +141,7 @@ export default function QuotationInvoicePDF({ profile = {}, quotation = {}, clie
             </View>
             <View style={S.invRow}>
               <Text style={S.invKey}>Date : </Text>
-              <Text style={S.invVal}>{fmtDate(new Date().toISOString().slice(0, 10))}</Text>
+              <Text style={S.invVal}>{fmtDate(today())}</Text>
             </View>
             {quotation.event_type ? (
               <View style={S.invRow}>

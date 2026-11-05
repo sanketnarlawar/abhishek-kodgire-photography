@@ -20,9 +20,9 @@ import {
   buildUpiUri,
   INVOICE_STATUSES,
   PAYMENT_MODES,
+  today,
 } from '../lib/format'
 
-const today = () => new Date().toISOString().slice(0, 10)
 
 export default function InvoiceView() {
   const { id } = useParams()

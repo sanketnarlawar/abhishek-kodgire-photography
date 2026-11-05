@@ -67,6 +67,12 @@ export function formatCurrency(value) {
   }).format(amount)
 }
 
+// Local calendar date (YYYY-MM-DD); toISOString() would give the UTC date.
+export function today() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function formatDate(value) {
   if (!value) return '-'
   const d = new Date(value)
@@ -78,9 +84,8 @@ export function formatDate(value) {
   })
 }
 
-// "Customer - Event Type - Event Date", safe to use as a file name.
-export function quotationName(quotation, client) {
-  quotation = quotation || {}
+// "<label> - Customer - Event Type - Event Date", safe to use as a file name.
+function documentName(label, quotation, client) {
   const parts = [
     client?.name,
     quotation.event_type,
@@ -88,8 +93,11 @@ export function quotationName(quotation, client) {
   ]
     .map((p) => (p || '').trim())
     .filter(Boolean)
-  const name = parts.join(' - ').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()
-  return name || quotation.quotation_number || 'Quotation'
+  return [label, ...parts].join(' - ').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+export function quotationName(quotation, client) {
+  return documentName('Quotation', quotation || {}, client)
 }
 
 // Invoice number mirrors the quotation number, e.g. QT-2026-001 -> INV-2026-001.
@@ -100,8 +108,7 @@ export function quotationInvoiceNumber(quotation, profile) {
 }
 
 export function quotationInvoiceName(quotation, profile, client) {
-  const who = (client?.name || '').replace(/[\\/:*?"<>|]+/g, ' ').trim()
-  return [quotationInvoiceNumber(quotation, profile), who].filter(Boolean).join(' - ') || 'Invoice'
+  return documentName('Invoice', quotation || {}, client)
 }
 
 export function formatTime(value) {

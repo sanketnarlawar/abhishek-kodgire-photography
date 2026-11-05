@@ -13,9 +13,8 @@ import { useSortPaginate } from '../lib/useSortPaginate'
 import { getSavedInvoiceFilters, saveInvoiceFilters } from '../lib/invoiceFilters'
 import { downloadCsv } from '../lib/csv'
 import { PlusIcon, InvoiceIcon, WalletIcon, TrashIcon, ArrowUpDownIcon, CalendarIcon } from '../components/icons'
-import { formatCurrency, formatDate, formatTime, INVOICE_STATUSES } from '../lib/format'
+import { formatCurrency, formatDate, formatTime, today, INVOICE_STATUSES } from '../lib/format'
 
-const today = () => new Date().toISOString().slice(0, 10)
 const PAYMENT_MODES = ['Cash', 'Online / UPI', 'Cheque', 'Bank Transfer', 'Card']
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 

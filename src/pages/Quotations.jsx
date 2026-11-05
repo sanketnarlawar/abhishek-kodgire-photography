@@ -10,7 +10,7 @@ import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import { useSortPaginate } from '../lib/useSortPaginate'
 import { PlusIcon, TrashIcon, QuoteIcon, CopyIcon, ArrowUpDownIcon } from '../components/icons'
-import { formatCurrency, formatDate, formatTime, quotationName, normalizeQuotationStatus } from '../lib/format'
+import { formatCurrency, formatDate, formatTime, today, quotationName, normalizeQuotationStatus } from '../lib/format'
 
 const receivedOf = (q) => (q.details?.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0)
 
@@ -115,7 +115,7 @@ export default function Quotations() {
         client_id: q.client_id,
         event_type: q.event_type,
         event_date: q.event_date,
-        issue_date: new Date().toISOString().slice(0, 10),
+        issue_date: today(),
         items: q.items,
         discount: q.discount,
         subtotal: q.subtotal,

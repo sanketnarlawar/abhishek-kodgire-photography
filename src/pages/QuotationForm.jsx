@@ -21,9 +21,9 @@ import {
   DELIVERY_WORKFLOW_OPTIONS,
   amountInWords,
   normalizeQuotationStatus,
+  today,
 } from '../lib/format'
 
-const today = () => new Date().toISOString().slice(0, 10)
 
 const DEFAULT_SERVICES = [
   'Traditional Photography',

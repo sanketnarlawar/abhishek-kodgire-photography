@@ -8,9 +8,8 @@ import { TableSkeleton } from '../components/Loaders'
 import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import { PlusIcon, TrashIcon, ExpenseIcon, EditIcon, SearchIcon, PhoneIcon } from '../components/icons'
-import { EXPENSE_CATEGORIES, formatCurrency, formatDate } from '../lib/format'
+import { EXPENSE_CATEGORIES, formatCurrency, formatDate, today } from '../lib/format'
 
-const today = () => new Date().toISOString().slice(0, 10)
 
 // Keeps only digits and a single decimal point.
 const cleanDecimal = (v) => v.replace(/[^\d.]/g, '').replace(/^(\d*\.\d*).*$/, '$1')
@@ -103,7 +102,7 @@ export default function Expenses() {
   const [editingExpense, setEditingExpense] = useState(null)
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
-  const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7))
+  const [period, setPeriod] = useState(() => today().slice(0, 7))
   const [search, setSearch] = useState('')
 
   const load = async () => {
@@ -296,7 +295,7 @@ export default function Expenses() {
 
   // Months that have expenses, newest first, for the period selector.
   const availableMonths = useMemo(() => {
-    const keys = new Set([new Date().toISOString().slice(0, 7)])
+    const keys = new Set([today().slice(0, 7)])
     expenses.forEach((e) => e.expense_date && keys.add(monthKey(e.expense_date)))
     return [...keys].sort().reverse()
   }, [expenses])

@@ -157,6 +157,7 @@ end $$;
 -- ---------- Helpful indexes ----------
 create index if not exists idx_clients_owner    on public.clients (owner_id);
 create index if not exists idx_invoices_owner   on public.invoices (owner_id);
+create unique index if not exists idx_invoices_owner_number on public.invoices (owner_id, invoice_number);
 create index if not exists idx_quotations_owner on public.quotations (owner_id);
 create index if not exists idx_payments_invoice on public.payments (invoice_id);
 create index if not exists idx_expenses_owner   on public.expenses (owner_id);

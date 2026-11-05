@@ -6,7 +6,7 @@ import CustomerCombobox from '../components/CustomerCombobox'
 import { PageLoader } from '../components/Loaders'
 import { useToast } from '../contexts/ToastContext'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
-import { formatCurrency } from '../lib/format'
+import { formatCurrency, today } from '../lib/format'
 import { TrashIcon, PlusIcon, SettingsIcon, WhatsAppIcon, ArrowLeftIcon } from '../components/icons'
 import ItemCombobox from '../components/ItemCombobox'
 import DateField from '../components/DateField'
@@ -14,7 +14,6 @@ import { loadItemsLibrary, saveItemsToLibrary } from '../lib/itemService'
 import { useProfile } from '../contexts/ProfileContext'
 import { buildInvoiceWhatsAppUrl } from '../lib/whatsapp'
 
-const today = () => new Date().toISOString().slice(0, 10)
 const currentTime = () =>
   new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
 
@@ -36,13 +35,14 @@ const emptyRow = (unit = 'NONE') => ({
 
 async function generateNumber(prefix) {
   const year = new Date().getFullYear()
-  const like = `${prefix}-${year}-%`
-  const { count } = await supabase
-    .from('invoices')
-    .select('*', { count: 'exact', head: true })
-    .like('invoice_number', like)
-  const next = String((count || 0) + 1).padStart(3, '0')
-  return `${prefix}-${year}-${next}`
+  const stem = `${prefix}-${year}-`
+  const { data } = await supabase.from('invoices').select('invoice_number').like('invoice_number', `${stem}%`)
+  // Highest used number + 1, so deleted numbers are never reused.
+  const highest = (data || []).reduce((max, row) => {
+    const n = Number(/-(\d+)$/.exec(row.invoice_number || '')?.[1])
+    return Number.isFinite(n) && n > max ? n : max
+  }, 0)
+  return `${stem}${String(highest + 1).padStart(3, '0')}`
 }
 
 export default function InvoiceForm() {
@@ -588,6 +588,12 @@ export default function InvoiceForm() {
 
     setSaving(true)
     try {
+      const number = form.invoice_number.trim()
+      let dupQuery = supabase.from('invoices').select('id').eq('invoice_number', number).limit(1)
+      if (isEdit) dupQuery = dupQuery.neq('id', id)
+      const { data: dup } = await dupQuery
+      if (dup?.length) throw new Error(`Invoice number ${number} already exists. Please use a different number.`)
+
       let finalClientId = form.client_id
 
       // Auto-create client in database if not selected from existing list
@@ -628,7 +634,7 @@ export default function InvoiceForm() {
             : 'Unpaid'
 
       const payload = {
-        invoice_number: form.invoice_number,
+        invoice_number: form.invoice_number.trim(),
         client_id: finalClientId,
         phone: form.phone?.trim() || null,
         event_type: 'Sale',
@@ -751,7 +757,12 @@ export default function InvoiceForm() {
       navigate(`/invoices/${savedId}`)
     } catch (err) {
       waWindow?.close()
-      notify(err.message || 'Error saving invoice', 'error')
+      notify(
+        err.code === '23505'
+          ? 'This invoice number already exists. Please use a different number.'
+          : err.message || 'Error saving invoice',
+        'error'
+      )
     } finally {
       setSaving(false)
     }
