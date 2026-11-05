@@ -123,6 +123,15 @@ create table if not exists public.expenses (
   created_at timestamptz default now()
 );
 
+-- ---------- Photographers ----------
+create table if not exists public.photographers (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  name text not null,
+  phone text,
+  created_at timestamptz default now()
+);
+
 -- ============================================================
 --  Row Level Security (RLS)
 --  Ensures each owner can only see and change their own data.
@@ -134,13 +143,14 @@ alter table public.invoices         enable row level security;
 alter table public.quotations       enable row level security;
 alter table public.payments         enable row level security;
 alter table public.expenses         enable row level security;
+alter table public.photographers    enable row level security;
 
 do $$
 declare
   t text;
 begin
   foreach t in array array[
-    'business_profile','clients','invoices','quotations','payments','expenses'
+    'business_profile','clients','invoices','quotations','payments','expenses','photographers'
   ]
   loop
     execute format('drop policy if exists "owner_all" on public.%I;', t);
@@ -161,3 +171,4 @@ create unique index if not exists idx_invoices_owner_number on public.invoices (
 create index if not exists idx_quotations_owner on public.quotations (owner_id);
 create index if not exists idx_payments_invoice on public.payments (invoice_id);
 create index if not exists idx_expenses_owner   on public.expenses (owner_id);
+create unique index if not exists idx_photographers_owner_name on public.photographers (owner_id, lower(name));

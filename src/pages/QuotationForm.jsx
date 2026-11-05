@@ -9,7 +9,7 @@ import EventScheduleEditor from '../components/EventScheduleEditor'
 import EventDeliveryEditor from '../components/EventDeliveryEditor'
 import { PageLoader } from '../components/Loaders'
 import { ArrowLeftIcon } from '../components/icons'
-import { emptyEvent, newEventId, uniqueNames } from '../lib/eventServices'
+import { emptyEvent, newEventId, uniqueNames, serviceGroups, pruneAssignments } from '../lib/eventServices'
 import { useToast } from '../contexts/ToastContext'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import {
@@ -36,10 +36,10 @@ const DEFAULT_SERVICES = [
 // Legacy quotations stored one flat service list; schedule events now own their services.
 const loadSchedule = (data, details) => {
   const legacy = (data.items || []).map((it) => it.description).filter(Boolean)
-  let schedule = (details.schedule || []).map((r) => ({
+  let schedule = (details.schedule || []).map((r, i) => ({
     ...emptyEvent(),
     ...r,
-    id: r.id || newEventId(),
+    id: r.id || `event-${i}`,
     services: Array.isArray(r.services) ? r.services : [],
   }))
   if (schedule.length === 0) {
@@ -111,6 +111,8 @@ export default function QuotationForm() {
   const [savedWorkflows, setSavedWorkflows] = useState([])
 
   const baselineRef = useRef(null)
+  // Photographer assignments are edited from the list page; keep them across form saves.
+  const assignmentsRef = useRef({})
   const [dirty, setDirty] = useState(false)
   const releaseGuard = useUnsavedGuard(dirty)
 
@@ -148,6 +150,7 @@ export default function QuotationForm() {
           const clientObj = (clientData || []).find((c) => c.id === data.client_id)
           setCustomerName(clientObj?.name || '')
           const details = data.details || {}
+          assignmentsRef.current = details.assignments || {}
           const serviceRows = details.service_delivery || []
           setForm({
             quotation_number: data.quotation_number,
@@ -328,6 +331,10 @@ export default function QuotationForm() {
             .filter((r) => Number(r.amount) > 0)
             .map((r) => ({ ...r, amount: Number(r.amount) })),
           delivery: form.delivery.filter((r) => r.workflow?.trim()),
+          assignments: pruneAssignments(
+            assignmentsRef.current,
+            serviceGroups({ details: { schedule: events, service_delivery: extraServices }, items: activeItems })
+          ),
         },
       }
       const { error } = isEdit

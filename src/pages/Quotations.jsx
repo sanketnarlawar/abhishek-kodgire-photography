@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import PageHeader from '../components/PageHeader'
 import EmptyState from '../components/EmptyState'
 import StatusBadge from '../components/StatusBadge'
 import Pagination from '../components/Pagination'
+import PhotographerAssignModal from '../components/PhotographerAssignModal'
 import { TableSkeleton } from '../components/Loaders'
 import { useToast } from '../contexts/ToastContext'
 import { useConfirm } from '../contexts/ConfirmContext'
 import { useSortPaginate } from '../lib/useSortPaginate'
-import { PlusIcon, TrashIcon, QuoteIcon, CopyIcon, ArrowUpDownIcon } from '../components/icons'
-import { formatCurrency, formatDate, formatTime, today, quotationName, normalizeQuotationStatus } from '../lib/format'
+import { assignmentProgress } from '../lib/eventServices'
+import { PlusIcon, TrashIcon, QuoteIcon, EditIcon, UserIcon, ArrowUpDownIcon } from '../components/icons'
+import { formatCurrency, formatDate, formatTime, quotationName, normalizeQuotationStatus } from '../lib/format'
 
 const receivedOf = (q) => (q.details?.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0)
 
@@ -68,7 +70,8 @@ export default function Quotations() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
-  const navigate = useNavigate()
+  const [photographers, setPhotographers] = useState([])
+  const [assignFor, setAssignFor] = useState(null)
 
   const load = () => {
     setLoading(true)
@@ -81,6 +84,11 @@ export default function Quotations() {
         setQuotations(data || [])
         setLoading(false)
       })
+    supabase
+      .from('photographers')
+      .select('*')
+      .order('name')
+      .then(({ data }) => setPhotographers(data || []))
   }
 
   useEffect(() => {
@@ -99,35 +107,10 @@ export default function Quotations() {
     load()
   }
 
-  const duplicate = async (q) => {
-    const year = new Date().getFullYear()
-    const { data: profile } = await supabase.from('business_profile').select('quotation_prefix').limit(1).maybeSingle()
-    const prefix = profile?.quotation_prefix || 'QT'
-    const { count } = await supabase
-      .from('quotations')
-      .select('*', { count: 'exact', head: true })
-      .like('quotation_number', `${prefix}-${year}-%`)
-    const number = `${prefix}-${year}-${String((count || 0) + 1).padStart(3, '0')}`
-    const { data } = await supabase
-      .from('quotations')
-      .insert({
-        quotation_number: number,
-        client_id: q.client_id,
-        event_type: q.event_type,
-        event_date: q.event_date,
-        issue_date: today(),
-        items: q.items,
-        discount: q.discount,
-        subtotal: q.subtotal,
-        total: q.total,
-        notes: q.notes,
-        status: 'Draft',
-        details: q.details || {},
-      })
-      .select('id')
-      .single()
-    notify('Quotation duplicated')
-    if (data?.id) navigate(`/quotations/${data.id}/edit`)
+  const handleAssigned = ({ quotationId, details, photographers: nextPhotographers }) => {
+    setQuotations((list) => list.map((q) => (q.id === quotationId ? { ...q, details } : q)))
+    setPhotographers(nextPhotographers)
+    setAssignFor(null)
   }
 
   const filtered = useMemo(
@@ -234,16 +217,34 @@ export default function Quotations() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-3">
-                        <Link to={`/quotations/${q.id}`} className="text-sm font-medium text-brand-600 hover:underline">
-                          View
+                        <Link
+                          to={`/quotations/${q.id}/edit`}
+                          className="text-gray-400 hover:text-brand-600"
+                          title="Edit"
+                          aria-label="Edit quotation"
+                        >
+                          <EditIcon width={16} height={16} />
                         </Link>
-                        <Link to={`/quotations/${q.id}/edit`} className="text-sm font-medium text-brand-600 hover:underline">
-                          Edit
-                        </Link>
-                        <button onClick={() => duplicate(q)} className="text-gray-400 hover:text-brand-600" title="Duplicate">
-                          <CopyIcon width={16} height={16} />
-                        </button>
-                        <button onClick={() => remove(q)} className="text-gray-400 hover:text-red-600" title="Delete">
+                        {(() => {
+                          const { assigned, total } = assignmentProgress(q)
+                          const tone =
+                            total > 0 && assigned === total
+                              ? 'text-green-600'
+                              : assigned > 0
+                                ? 'text-amber-500'
+                                : 'text-gray-400 hover:text-brand-600'
+                          return (
+                            <button
+                              onClick={() => setAssignFor(q)}
+                              className={tone}
+                              title={`Assign photographers (${assigned} of ${total} assigned)`}
+                              aria-label="Assign photographers"
+                            >
+                              <UserIcon width={16} height={16} />
+                            </button>
+                          )
+                        })()}
+                        <button onClick={() => remove(q)} className="text-gray-400 hover:text-red-600" title="Delete" aria-label="Delete quotation">
                           <TrashIcon width={16} height={16} />
                         </button>
                       </div>
@@ -256,6 +257,14 @@ export default function Quotations() {
           <Pagination page={table.page} totalPages={table.totalPages} total={table.total} onPage={table.setPage} />
         </>
       )}
+
+      <PhotographerAssignModal
+        open={Boolean(assignFor)}
+        quotation={assignFor}
+        photographers={photographers}
+        onClose={() => setAssignFor(null)}
+        onSaved={handleAssigned}
+      />
     </div>
   )
 }
